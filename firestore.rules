@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function profilePath() { return /databases/$(database)/documents/employees/$(request.auth.uid); }
+    function hasProfile() { return signedIn() && exists(profilePath()); }
+    function profile() { return get(profilePath()).data; }
+    function isSuper() { return hasProfile() && profile().role == 'superadmin'; }
+    function isDeptAdmin() { return hasProfile() && profile().role == 'deptadmin'; }
+    function setupDone() { return exists(/databases/$(database)/documents/system/status); }
+
+    // One-time setup flag. Readable before login so the app knows whether to show the setup screen.
+    match /system/status {
+      allow get: if true;
+      allow create: if isSuper() && !setupDone();
+      allow update, delete: if false;
+    }
+
+    match /employees/{uid} {
+      allow get: if signedIn() && (
+        request.auth.uid == uid
+        || isSuper()
+        || (isDeptAdmin() && resource.data.department == profile().department)
+      );
+      allow list: if signedIn() && (
+        isSuper()
+        || (isDeptAdmin() && resource.data.department == profile().department)
+      );
+      allow create: if signedIn() && (
+        // very first Super Admin (only while setup isn't finished)
+        (request.auth.uid == uid && request.resource.data.role == 'superadmin' && !setupDone())
+        || isSuper()
+        || (isDeptAdmin()
+            && request.resource.data.role == 'employee'
+            && request.resource.data.department == profile().department)
+      );
+      allow update: if isSuper();
+      allow delete: if isSuper()
+        || (isDeptAdmin()
+            && resource.data.role == 'employee'
+            && resource.data.department == profile().department);
+    }
+
+    match /departments/{id} {
+      allow read: if hasProfile();
+      allow write: if isSuper();
+    }
+
+    match /leaveRequests/{id} {
+      allow read: if hasProfile() && (
+        resource.data.employeeId == request.auth.uid
+        || isSuper()
+        || (isDeptAdmin() && resource.data.department == profile().department)
+      );
+
+      allow create: if hasProfile()
+        && request.resource.data.employeeId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.department == profile().department;
+
+      // Admins can only change the review fields
+      allow update: if (isSuper()
+          || (isDeptAdmin() && resource.data.department == profile().department))
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'adminNote', 'reviewedBy', 'reviewedByName', 'reviewedAt']);
+
+      // Employees can cancel their own pending requests
+      allow delete: if hasProfile()
+        && resource.data.employeeId == request.auth.uid
+        && resource.data.status == 'pending';
+    }
+  }
+}
