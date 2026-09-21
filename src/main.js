@@ -21,6 +21,117 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
+/* ============================= EXTRA STYLES =============================
+   Injected after style.css, so it refines the existing look without needing
+   any change to style.css. All colours reuse your existing CSS variables. */
+const EXTRA_CSS = `
+:root {
+  --ld-radius: 12px;
+  --ld-shadow: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06);
+  --ld-shadow-lg: 0 24px 48px -12px rgba(16,24,40,.28);
+  --ld-ring: 0 0 0 3px rgba(100,116,150,.22);
+}
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+/* surfaces */
+.surface { border-radius: var(--ld-radius); box-shadow: var(--ld-shadow); }
+
+/* buttons + inputs */
+.btn { transition: background-color .15s, border-color .15s, box-shadow .15s, opacity .15s; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn:focus-visible { outline: none; box-shadow: var(--ld-ring); }
+.input:focus { outline: none; border-color: var(--navy); box-shadow: var(--ld-ring); }
+textarea.input { resize: vertical; min-height: 64px; }
+
+/* tables */
+.table-wrap { overflow-x: auto; }
+.table-wrap table { width: 100%; border-collapse: collapse; }
+.table-wrap thead th {
+  text-align: left; font-size: 12.5px; font-weight: 600; color: var(--text-muted);
+  padding: 12px 18px; white-space: nowrap; background: rgba(15,23,42,.03);
+  border-bottom: 1px solid var(--border);
+}
+.table-wrap tbody td { padding: 14px 18px; font-size: 14px; vertical-align: middle; border-bottom: 1px solid var(--border); }
+.table-wrap tbody tr:last-child td { border-bottom: 0; }
+.table-wrap tbody tr:hover td { background: rgba(15,23,42,.02); }
+
+/* status badges */
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 1.5; }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge-pending  { background: #FEF3C7; color: #92400E; }
+.badge-approved { background: #DCFCE7; color: #166534; }
+.badge-rejected { background: #FEE2E2; color: #991B1B; }
+.badge-role { background: #EEF2FF; color: #3730A3; }
+.badge-role::before { display: none; }
+
+/* modal */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(15,23,42,.5); backdrop-filter: blur(3px); animation: ld-fade .15s ease-out;
+}
+.modal-panel {
+  width: 100%; max-width: 480px; max-height: calc(100vh - 32px); overflow: auto;
+  background: var(--surface, #fff); border-radius: 16px; box-shadow: var(--ld-shadow-lg); animation: ld-pop .18s ease-out;
+}
+@keyframes ld-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ld-pop  { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+/* toasts: always above the modal */
+#toast-root { position: fixed; right: 16px; bottom: 16px; top: auto; left: auto; z-index: 9999; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+.toast {
+  position: static; inset: auto; transform: none; margin: 0; pointer-events: auto; max-width: 360px;
+  background: #1F2937; color: #fff; padding: 11px 16px; border-radius: 10px; font-size: 14px;
+  border-left: 4px solid #94A3B8; box-shadow: var(--ld-shadow-lg);
+}
+.toast.ok  { border-left-color: #22C55E; }
+.toast.err { border-left-color: #EF4444; }
+
+/* sidebar */
+.sidebar-link {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px;
+  font-size: 14px; font-weight: 500; cursor: pointer; color: #B9C2D6; transition: background .15s, color .15s;
+}
+.sidebar-link:hover { background: rgba(255,255,255,.07); color: #fff; }
+.sidebar-link.active { background: rgba(255,255,255,.14); color: #fff; }
+.nav-count {
+  margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: #F59E0B; color: #1F2937; font-size: 11px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+/* dashboard stat cards */
+.stat { position: relative; overflow: hidden; padding: 18px 20px 18px 24px; }
+.stat::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--stat, #94A3B8); }
+
+/* small building blocks */
+.avatar {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background: #E0E7FF; color: #3730A3;
+  font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+}
+.cell-user { display: flex; align-items: center; gap: 10px; }
+.empty { padding: 40px 16px; text-align: center; color: var(--text-muted); font-size: 14px; }
+.attn-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; }
+.attn-item + .attn-item { border-top: 1px solid var(--border); }
+.chip-count { margin-left: 6px; font-size: 11.5px; opacity: .75; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; margin-bottom: 16px; }
+.detail-grid .k { font-size: 12.5px; color: var(--text-muted); margin-bottom: 2px; }
+.detail-grid .v { font-size: 14px; font-weight: 500; }
+.form-err { color: var(--danger); font-size: 14px; min-height: 20px; margin-bottom: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop, .modal-panel { animation: none; }
+  .btn, .sidebar-link { transition: none; }
+}
+`;
+function injectExtraCSS() {
+  if (document.getElementById("leavedesk-extra-css")) return;
+  const s = document.createElement("style");
+  s.id = "leavedesk-extra-css";
+  s.textContent = EXTRA_CSS;
+  document.head.appendChild(s);
+}
+
 /* ============================= STATE ============================= */
 const state = {
   booting: true,
@@ -36,6 +147,7 @@ const state = {
   leaveFilter: { status: "all", dept: "all" },
   unsubs: [],
 };
+let reviewBusy = false;
 
 /* ============================= HELPERS ============================= */
 function $(id) { return document.getElementById(id); }
@@ -46,6 +158,15 @@ function fmtDate(iso) {
   if (!iso) return "—";
   const d = new Date(iso + "T00:00:00");
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+function fmtRange(l) {
+  return fmtDate(l.startDate) + (l.startDate !== l.endDate ? " → " + fmtDate(l.endDate) : "");
+}
+function fmtDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d)) return "—";
+  return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 // Local date (not UTC), so the default date is correct in every timezone
 function todayISO() {
@@ -65,6 +186,11 @@ function deptName(id) {
   return d ? d.name : (id ? "—" : "All departments");
 }
 function empByUid(uid) { return state.employees.find(e => e.id === uid); }
+function initials(name) {
+  const parts = String(name || "?").trim().split(/\s+/).filter(Boolean);
+  const a = (parts[0] || "?")[0], b = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (a + b).toUpperCase();
+}
 function toast(msg, type) {
   const el = document.createElement("div");
   el.className = "toast" + (type === "err" ? " err" : type === "ok" ? " ok" : "");
@@ -76,6 +202,23 @@ function isSuperAdmin() { return state.user && state.user.role === "superadmin";
 function isDeptAdmin() { return state.user && state.user.role === "deptadmin"; }
 function isAdmin() { return isSuperAdmin() || isDeptAdmin(); }
 function roleLabel(r) { return r === "superadmin" ? "Super Admin" : r === "deptadmin" ? "Department Admin" : "Employee"; }
+
+/* Leaves an admin is allowed to see (Super Admin: all, Dept Admin: own department) */
+function adminScopeLeaves() {
+  return isSuperAdmin() ? state.leaves : state.leaves.filter(l => l.department === state.user.department);
+}
+/* Same, plus the department dropdown filter (Super Admin only) */
+function adminBaseList() {
+  let list = adminScopeLeaves();
+  if (isSuperAdmin() && state.leaveFilter.dept !== "all") list = list.filter(l => l.department === state.leaveFilter.dept);
+  return list;
+}
+/* Same, plus the status filter */
+function adminFilteredList() {
+  let list = adminBaseList();
+  if (state.leaveFilter.status !== "all") list = list.filter(l => l.status === state.leaveFilter.status);
+  return list;
+}
 
 /* ============================= MODAL ============================= */
 function openModal(html) {
@@ -260,6 +403,7 @@ const ICONS = {
 
 function renderApp() {
   const items = NAV.filter(n => n.roles.includes(state.user.role));
+  const pendingCount = isAdmin() ? adminScopeLeaves().filter(l => l.status === "pending").length : 0;
   renderShellless(`
     ${state.sidebarOpen ? `<div class="sidebar-scrim" onclick="state.sidebarOpen=false; render();"></div>` : ""}
     <div class="min-h-screen flex" style="background:var(--bg)">
@@ -273,12 +417,13 @@ function renderApp() {
             ${items.map(n => `
               <div class="sidebar-link ${state.tab === n.id ? "active" : ""}" onclick="switchTab('${n.id}')">
                 ${ICONS[n.icon]}<span>${n.label}</span>
+                ${n.id === "leaves" && pendingCount > 0 ? `<span class="nav-count">${pendingCount}</span>` : ""}
               </div>`).join("")}
           </nav>
         </div>
         <div class="px-2 pb-1">
           <div class="flex items-center gap-2 mb-3 pt-3" style="border-top:1px solid rgba(255,255,255,0.1)">
-            <div class="flex items-center justify-center rounded-full text-xs font-semibold shrink-0" style="width:32px;height:32px;background:rgba(255,255,255,0.12); color:#fff;">${esc((state.user.name||"?").slice(0,1).toUpperCase())}</div>
+            <div class="flex items-center justify-center rounded-full text-xs font-semibold shrink-0" style="width:32px;height:32px;background:rgba(255,255,255,0.12); color:#fff;">${esc(initials(state.user.name))}</div>
             <div class="min-w-0">
               <div class="text-sm font-medium truncate" style="color:#fff">${esc(state.user.name)}</div>
               <div class="text-xs truncate" style="color:#8D98B0">${roleLabel(state.user.role)}</div>
@@ -346,32 +491,56 @@ function tplDashboard() {
         ["Approved days taken", myApprovedDays, "success"],
         ["Total requests filed", myLeaves.length, "muted"],
       ];
+  const toneColor = t => t === "warn" ? "var(--warn)" : t === "success" ? "var(--success)" : t === "danger" ? "var(--danger)" : "var(--navy)";
 
   const recentPool = isAdmin() ? visibleLeaves : myLeaves;
   const recent = [...recentPool].sort((a, b) => (b.appliedAt || "").localeCompare(a.appliedAt || "")).slice(0, 6);
+  const attention = isAdmin()
+    ? visibleLeaves.filter(l => l.status === "pending").sort((a, b) => (a.appliedAt || "").localeCompare(b.appliedAt || "")).slice(0, 5)
+    : [];
 
   return `
     ${pageHeader("Dashboard", `Welcome back, ${esc(state.user.name.split(" ")[0])}.`)}
-    <div class="grid gap-4 mb-8" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+    <div class="grid gap-4 mb-8" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
       ${cards.map(([label, val, tone]) => `
-        <div class="surface rounded-xl p-5">
+        <div class="surface stat" style="--stat:${toneColor(tone)}">
           <div class="text-sm mb-2" style="color:var(--text-muted)">${label}</div>
-          <div class="text-3xl font-semibold" style="color:${tone === "warn" ? "var(--warn)" : tone === "success" ? "var(--success)" : tone === "danger" ? "var(--danger)" : "var(--navy)"}">${val}</div>
+          <div class="text-3xl font-semibold" style="color:${toneColor(tone)}">${val}</div>
         </div>`).join("")}
     </div>
-    <div class="surface rounded-xl overflow-hidden">
+
+    ${attention.length ? `
+    <div class="surface overflow-hidden mb-6">
+      <div class="px-5 py-4 flex items-center justify-between gap-3" style="border-bottom:1px solid var(--border)">
+        <div class="font-semibold text-sm">Waiting for your decision</div>
+        <button class="btn btn-sm btn-ghost" onclick="switchTab('leaves')">See all requests</button>
+      </div>
+      ${attention.map(l => `
+        <div class="attn-item">
+          <div class="cell-user min-w-0">
+            <div class="avatar">${esc(initials(l.employeeName))}</div>
+            <div class="min-w-0">
+              <div class="text-sm font-medium truncate">${esc(l.employeeName)}</div>
+              <div class="text-xs" style="color:var(--text-muted)">${esc(l.leaveType)}, ${fmtRange(l)} (${l.totalDays} day${l.totalDays === 1 ? "" : "s"})</div>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="modalReview('${l.id}')">Review</button>
+        </div>`).join("")}
+    </div>` : ""}
+
+    <div class="surface overflow-hidden">
       <div class="px-5 py-4" style="border-bottom:1px solid var(--border)">
         <div class="font-semibold text-sm">${isAdmin() ? "Recent leave requests" : "My recent requests"}</div>
       </div>
-      ${recent.length === 0 ? `<div class="p-8 text-center text-sm" style="color:var(--text-muted)">Nothing here yet.</div>` : `
+      ${recent.length === 0 ? `<div class="empty">Nothing here yet.</div>` : `
       <div class="table-wrap"><table>
         <thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th>Days</th><th>Status</th></tr></thead>
         <tbody>
         ${recent.map(l => `
           <tr>
-            <td>${esc(l.employeeName)}</td>
+            <td><div class="cell-user"><div class="avatar">${esc(initials(l.employeeName))}</div><span>${esc(l.employeeName)}</span></div></td>
             <td>${esc(l.leaveType)}</td>
-            <td>${fmtDate(l.startDate)}${l.startDate !== l.endDate ? " → " + fmtDate(l.endDate) : ""}</td>
+            <td>${fmtRange(l)}</td>
             <td>${l.totalDays}</td>
             <td>${statusBadge(l.status)}</td>
           </tr>`).join("")}
@@ -381,8 +550,9 @@ function tplDashboard() {
   `;
 }
 function statusBadge(s) {
-  const label = s.charAt(0).toUpperCase() + s.slice(1);
-  return `<span class="badge badge-${s}">${label}</span>`;
+  const st = s || "pending";
+  const label = st.charAt(0).toUpperCase() + st.slice(1);
+  return `<span class="badge badge-${st}">${label}</span>`;
 }
 
 /* ============================= MY LEAVE ============================= */
@@ -393,17 +563,15 @@ function tplMyLeave() {
   return `
     ${pageHeader("My Leave", "Submit a new request or track your leave history.",
       `<button class="btn btn-primary" onclick="modalSubmitLeave()">+ New leave request</button>`)}
-    <div class="surface rounded-xl overflow-hidden">
-      ${mine.length === 0 ? `<div class="p-10 text-center text-sm" style="color:var(--text-muted)">
-          You haven't submitted any leave requests yet.
-        </div>` : `
+    <div class="surface overflow-hidden">
+      ${mine.length === 0 ? `<div class="empty">You haven't submitted any leave requests yet. Use "New leave request" to file your first one.</div>` : `
       <div class="table-wrap"><table>
         <thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Reason</th><th>Status</th><th>Note from admin</th><th></th></tr></thead>
         <tbody>
         ${mine.map(l => `
           <tr>
             <td class="font-medium">${esc(l.leaveType)}</td>
-            <td>${fmtDate(l.startDate)}${l.startDate !== l.endDate ? " → " + fmtDate(l.endDate) : ""}</td>
+            <td>${fmtRange(l)}</td>
             <td>${l.totalDays}</td>
             <td style="max-width:220px">${esc(l.reason) || "—"}</td>
             <td>${statusBadge(l.status)}</td>
@@ -488,18 +656,22 @@ async function handleCancelLeave(id) {
 
 /* ============================= LEAVE REQUESTS (ADMIN) ============================= */
 function tplLeaves() {
-  let list = isSuperAdmin() ? state.leaves : state.leaves.filter(l => l.department === state.user.department);
-  if (state.leaveFilter.status !== "all") list = list.filter(l => l.status === state.leaveFilter.status);
-  if (isSuperAdmin() && state.leaveFilter.dept !== "all") list = list.filter(l => l.department === state.leaveFilter.dept);
-  list = [...list].sort((a, b) => (b.appliedAt || "").localeCompare(a.appliedAt || ""));
+  const base = adminBaseList();
+  const list = [...adminFilteredList()].sort((a, b) => (b.appliedAt || "").localeCompare(a.appliedAt || ""));
+  const counts = {
+    all: base.length,
+    pending: base.filter(l => l.status === "pending").length,
+    approved: base.filter(l => l.status === "approved").length,
+    rejected: base.filter(l => l.status === "rejected").length,
+  };
 
   return `
     ${pageHeader("Leave Requests", isSuperAdmin() ? "Across all departments." : `For ${esc(deptName(state.user.department))}.`,
       `<button class="btn btn-secondary" onclick="exportLeavesExcel()">Export to Excel</button>`)}
 
-    <div class="flex gap-2 mb-5 flex-wrap">
+    <div class="flex gap-2 mb-5 flex-wrap items-center">
       ${["all","pending","approved","rejected"].map(s => `
-        <button class="btn btn-sm ${state.leaveFilter.status===s?"btn-dark":"btn-secondary"}" onclick="state.leaveFilter.status='${s}'; render();">${s[0].toUpperCase()+s.slice(1)}</button>
+        <button class="btn btn-sm ${state.leaveFilter.status===s?"btn-dark":"btn-secondary"}" onclick="state.leaveFilter.status='${s}'; render();">${s[0].toUpperCase()+s.slice(1)}<span class="chip-count">${counts[s]}</span></button>
       `).join("")}
       ${isSuperAdmin() && state.departments.length ? `
         <select class="input" style="width:auto; margin-left:8px;" onchange="state.leaveFilter.dept=this.value; render();">
@@ -508,21 +680,23 @@ function tplLeaves() {
         </select>` : ""}
     </div>
 
-    <div class="surface rounded-xl overflow-hidden">
-      ${list.length === 0 ? `<div class="p-10 text-center text-sm" style="color:var(--text-muted)">No requests match this filter.</div>` : `
+    <div class="surface overflow-hidden">
+      ${list.length === 0 ? `<div class="empty">No requests match this filter.</div>` : `
       <div class="table-wrap"><table>
         <thead><tr><th>Employee</th>${isSuperAdmin() ? "<th>Dept</th>" : ""}<th>Type</th><th>Dates</th><th>Days</th><th>Reason</th><th>Status</th><th></th></tr></thead>
         <tbody>
         ${list.map(l => `
           <tr>
-            <td class="font-medium">${esc(l.employeeName)}</td>
+            <td><div class="cell-user"><div class="avatar">${esc(initials(l.employeeName))}</div><span class="font-medium">${esc(l.employeeName)}</span></div></td>
             ${isSuperAdmin() ? `<td>${esc(deptName(l.department))}</td>` : ""}
             <td>${esc(l.leaveType)}</td>
-            <td>${fmtDate(l.startDate)}${l.startDate !== l.endDate ? " → " + fmtDate(l.endDate) : ""}</td>
+            <td>${fmtRange(l)}</td>
             <td>${l.totalDays}</td>
             <td style="max-width:200px">${esc(l.reason) || "—"}</td>
             <td>${statusBadge(l.status)}</td>
-            <td>${l.status === "pending" ? `<button class="btn btn-sm btn-primary" onclick="modalReview('${l.id}')">Review</button>` : `<span class="text-xs" style="color:var(--text-muted)">by ${esc(l.reviewedByName||"—")}</span>`}</td>
+            <td style="white-space:nowrap">${l.status === "pending"
+              ? `<button class="btn btn-sm btn-primary" onclick="modalReview('${l.id}')">Review</button>`
+              : `<button class="btn btn-sm btn-secondary" onclick="modalReview('${l.id}')">Details</button>`}</td>
           </tr>`).join("")}
         </tbody>
       </table></div>`}
@@ -530,46 +704,95 @@ function tplLeaves() {
   `;
 }
 
+/* ---- Approve / Reject ----
+   The buttons call handleReview(id, decision) directly (no form submit),
+   so the click always reaches Firestore, and any error is shown inside the
+   popup instead of a toast that could be hidden behind it. */
 function modalReview(id) {
   const l = state.leaves.find(x => x.id === id);
-  if (!l) return;
+  if (!l) { toast("That request could not be found.", "err"); return; }
+  if (!isAdmin()) { toast("Only admins can review leave requests.", "err"); return; }
+  const pendingNow = l.status === "pending";
+
   openModal(`
-    <form onsubmit="handleReview(event,'${id}')" class="p-6">
-      <h2 class="text-lg font-semibold mb-1">Review request</h2>
-      <p class="text-sm mb-4" style="color:var(--text-muted)">${esc(l.employeeName)} · ${esc(l.leaveType)} · ${fmtDate(l.startDate)}${l.startDate!==l.endDate?" → "+fmtDate(l.endDate):""} (${l.totalDays} day${l.totalDays===1?"":"s"})</p>
+    <div class="p-6">
+      <div class="flex items-start justify-between gap-3 mb-5">
+        <div>
+          <h2 class="text-lg font-semibold">${pendingNow ? "Review request" : "Leave request"}</h2>
+          <p class="text-sm mt-1" style="color:var(--text-muted)">${esc(l.employeeName)}, ${esc(deptName(l.department))}</p>
+        </div>
+        ${statusBadge(l.status)}
+      </div>
+
+      <div class="detail-grid">
+        <div><div class="k">Leave type</div><div class="v">${esc(l.leaveType)}</div></div>
+        <div><div class="k">Duration</div><div class="v">${l.totalDays} day${l.totalDays === 1 ? "" : "s"}</div></div>
+        <div><div class="k">Dates</div><div class="v">${fmtRange(l)}</div></div>
+        <div><div class="k">Applied</div><div class="v">${fmtDateTime(l.appliedAt)}</div></div>
+      </div>
+
+      <div class="k text-xs mb-1" style="color:var(--text-muted)">Reason</div>
       <div class="surface-alt rounded-lg p-3 text-sm mb-4">${esc(l.reason) || "No reason given."}</div>
-      <label class="label">Note (optional, shown to employee)</label>
-      <textarea class="input mb-5" name="note" rows="2" placeholder="e.g. Approved, please hand over pending tasks."></textarea>
+
+      ${!pendingNow ? `<p class="text-sm mb-4" style="color:var(--text-muted)">${l.status === "approved" ? "Approved" : "Rejected"} by ${esc(l.reviewedByName || "—")} on ${fmtDateTime(l.reviewedAt)}. You can still change the decision below.</p>` : ""}
+
+      <label class="label">Note to employee (optional)</label>
+      <textarea class="input mb-3" id="review-note" rows="2" placeholder="e.g. Approved, please hand over pending tasks.">${esc(l.adminNote || "")}</textarea>
+
+      <p id="review-err" class="form-err"></p>
+
       <div class="flex gap-2 justify-end flex-wrap">
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
-        <button type="submit" formnovalidate onclick="this.form.dataset.decision='rejected'" class="btn btn-danger">Reject</button>
-        <button type="submit" formnovalidate onclick="this.form.dataset.decision='approved'" class="btn btn-success">Approve</button>
+        ${l.status !== "rejected" ? `<button type="button" data-review-btn class="btn btn-danger" onclick="handleReview('${id}','rejected')">Reject</button>` : ""}
+        ${l.status !== "approved" ? `<button type="button" data-review-btn class="btn btn-success" onclick="handleReview('${id}','approved')">Approve</button>` : ""}
       </div>
-    </form>
+    </div>
   `);
 }
 
-async function handleReview(e, id) {
-  e.preventDefault();
-  const decision = e.target.dataset.decision;
-  if (!decision) return;
+async function handleReview(id, decision) {
+  if (reviewBusy) return;
+  if (decision !== "approved" && decision !== "rejected") return;
+
+  const l = state.leaves.find(x => x.id === id);
+  const errEl = $("review-err"), noteEl = $("review-note");
+  const btns = Array.from(document.querySelectorAll("#modal-root [data-review-btn]"));
+  if (errEl) errEl.textContent = "";
+
+  if (!isAdmin()) { if (errEl) errEl.textContent = "Only admins can review leave requests."; return; }
+  if (l && isDeptAdmin() && l.department !== state.user.department) {
+    if (errEl) errEl.textContent = "You can only review requests from your own department.";
+    return;
+  }
+
+  reviewBusy = true;
+  btns.forEach(b => { b.disabled = true; });
+  const clicked = btns.find(b => b.getAttribute("onclick") && b.getAttribute("onclick").includes("'" + decision + "'"));
+  const oldLabel = clicked ? clicked.textContent : "";
+  if (clicked) clicked.textContent = decision === "approved" ? "Approving…" : "Rejecting…";
+
   try {
     await db.collection("leaveRequests").doc(id).update({
       status: decision,
-      adminNote: e.target.note.value.trim() || null,
+      adminNote: (noteEl && noteEl.value.trim()) || null,
       reviewedBy: state.user.uid,
       reviewedByName: state.user.name,
       reviewedAt: new Date().toISOString(),
     });
     closeModal();
     toast(`Request ${decision}.`, "ok");
-  } catch (ex) { console.error(ex); toast(friendlyAuthError(ex), "err"); }
+  } catch (ex) {
+    console.error("review failed", ex);
+    if (errEl) errEl.textContent = friendlyAuthError(ex);
+    btns.forEach(b => { b.disabled = false; });
+    if (clicked) clicked.textContent = oldLabel;
+  } finally {
+    reviewBusy = false;
+  }
 }
 
 function exportLeavesExcel() {
-  let list = isSuperAdmin() ? state.leaves : state.leaves.filter(l => l.department === state.user.department);
-  if (state.leaveFilter.status !== "all") list = list.filter(l => l.status === state.leaveFilter.status);
-  if (isSuperAdmin() && state.leaveFilter.dept !== "all") list = list.filter(l => l.department === state.leaveFilter.dept);
+  const list = adminFilteredList();
   if (list.length === 0) { toast("Nothing to export for this filter.", "err"); return; }
 
   const rows = list.map(l => ({
@@ -597,14 +820,14 @@ function tplEmployees() {
         <button class="btn btn-primary" onclick="modalAddEmployee()">+ Add employee</button>
       </div>`)}
 
-    <div class="surface rounded-xl overflow-hidden">
-      ${list.length === 0 ? `<div class="p-10 text-center text-sm" style="color:var(--text-muted)">No employees yet. Add your first one.</div>` : `
+    <div class="surface overflow-hidden">
+      ${list.length === 0 ? `<div class="empty">No employees yet. Use "Add employee" to create the first one.</div>` : `
       <div class="table-wrap"><table>
         <thead><tr><th>Name</th><th>Email</th>${isSuperAdmin() ? "<th>Department</th>" : ""}<th>Role</th><th></th></tr></thead>
         <tbody>
         ${list.map(e => `
           <tr>
-            <td class="font-medium">${esc(e.name)}</td>
+            <td><div class="cell-user"><div class="avatar">${esc(initials(e.name))}</div><span class="font-medium">${esc(e.name)}</span></div></td>
             <td style="color:var(--text-muted)">${esc(e.email)}</td>
             ${isSuperAdmin() ? `<td>${esc(deptName(e.department))}</td>` : ""}
             <td><span class="badge badge-role">${roleLabel(e.role)}</span></td>
@@ -712,11 +935,11 @@ function tplDepartments() {
     ${pageHeader("Departments", "Add departments before assigning employees to them.",
       `<button class="btn btn-primary" onclick="modalAddDepartment()">+ Add department</button>`)}
     <div class="grid gap-3" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
-      ${list.length === 0 ? `<div class="surface rounded-xl p-8 text-center text-sm col-span-full" style="color:var(--text-muted)">No departments yet.</div>` :
+      ${list.length === 0 ? `<div class="surface empty col-span-full">No departments yet. Use "Add department" to create one.</div>` :
         list.map(d => {
           const count = state.employees.filter(e => e.department === d.id).length;
           return `
-          <div class="surface rounded-xl p-5">
+          <div class="surface p-5">
             <div class="flex items-start justify-between gap-2">
               <div class="font-semibold">${esc(d.name)}</div>
               <button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="handleDeleteDepartment('${d.id}')">Remove</button>
@@ -891,5 +1114,6 @@ async function boot() {
 /* Inline onclick/onsubmit handlers in the templates need these on window (ES modules are not global) */
 Object.assign(window, { switchTab, handleLogout, modalProfile, modalSubmitLeave, handleSubmitLeave, handleCancelLeave, modalReview, handleReview, exportLeavesExcel, exportEmployeesExcel, modalAddEmployee, handleAddEmployee, handleRemoveEmployee, modalAddDepartment, handleAddDepartment, handleDeleteDepartment, handleChangePassword, handleLogin, handleSetupSubmit, closeModal, render, state });
 
+injectExtraCSS();
 render();
 boot();
