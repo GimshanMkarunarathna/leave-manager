@@ -1,9 +1,122 @@
+
+Claude is responding
+Mehema, copy karaganna lesi wenna:
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/employees/$(request.auth.uid)).data; }
+    function isSuper() { return signedIn() && me().role == 'superadmin'; }
+    function isDeptAdminOf(dept) {
+      return signedIn() && me().role == 'deptadmin' && dept != null && me().department == dept;
+    }
+    function setupDone() { return exists(/databases/$(database)/documents/system/status); }
+
+    match /system/{docId} {
+      allow read: if true;
+      allow create: if signedIn() && !setupDone();
+      allow update, delete: if isSuper();
+    }
+
+    match /employees/{uid} {
+      allow read: if signedIn() && (
+        request.auth.uid == uid || isSuper() || isDeptAdminOf(resource.data.department)
+      );
+      allow create: if signedIn() && (
+        (request.auth.uid == uid && request.resource.data.role == 'superadmin' && !setupDone())
+        || isSuper()
+        || (isDeptAdminOf(request.resource.data.department) && request.resource.data.role == 'employee')
+      );
+      allow update: if isSuper() || (
+        request.auth.uid == uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.department == resource.data.department
+        && request.resource.data.email == resource.data.email
+      );
+      allow delete: if isSuper() || (isDeptAdminOf(resource.data.department) && resource.data.role == 'employee');
+    }
+
+    match /departments/{id} {
+      allow read: if signedIn();
+      allow write: if isSuper();
+    }
+
+    match /leaveRequests/{id} {
+      allow read: if signedIn() && (
+        resource.data.employeeId == request.auth.uid || isSuper() || isDeptAdminOf(resource.data.department)
+      );
+      allow create: if signedIn()
+        && request.resource.data.employeeId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if isSuper() || isDeptAdminOf(resource.data.department);
+      allow delete: if signedIn() && (
+        (resource.data.employeeId == request.auth.uid && resource.data.status == 'pending') || isSuper()
+      );
+    }
+
+    match /attendance/{id} {
+      allow read: if signedIn() && (
+        resource.data.employeeId == request.auth.uid || isSuper() || isDeptAdminOf(resource.data.department)
+      );
+      allow create: if signedIn() && request.resource.data.employeeId == request.auth.uid;
+      allow update: if signedIn() && (
+        resource.data.employeeId == request.auth.uid || isSuper() || isDeptAdminOf(resource.data.department)
+      );
+      allow delete: if isSuper();
+    }
+  }
+}
+Meka Firebase Console → Firestore Database → Rules tab eke thiyena ewa okkoma ain karala paste karala Publish karanna. Kalin thiyena rules backup ekak gannath amathaka karanna epa.
+
+me system ekama picme transport bill add krnn etails ekakuth dala hadala denn puluvnda puluvan nm slip eka png add krnn option ekakuth oni giye kohe idn kothanatada km gana drive details mona project ekatada and amathara detail add krnn th oni professional vidiyta full ui ekama update krnn e vagema excerl sheet apita donlode kr gnn date range ekk denna
+
+Edited a file, ran 7 commands, and 7 more tools
+Full main.js eka aluthin, "Transport Bills" module ekak (PickMe/taxi bill claim) ekathu karala dala thiyenawa. Firebase config eka, kalin data structure eka, ewa okkoma wenas karala na.
+
+Aluth features
+
+Transport Bills (hama kenekutama) — "From", "To", Distance (km), Amount, Date, Project, Additional details, saha slip photo (PNG/JPG) upload. Slip eka thumbnail ekak vidiyata penenawa, click karama loku karala penenawa.
+Projects (Super Admin ta witharai) — Department ekak vage, project ekak add karala, bill ekak ekata tag karanna puluwan.
+Transport Claims (Admin ta) — okkoma bills balanna, filter karanna (status, date range, department, project), Approve/Reject karanna (Leave requests wage), amount total ekakuth penenawa.
+Excel export — date range ekak dila — "From" / "To" date dala filter karala "Export to Excel" click kalama, e range ekatama wena bills witharak file ekata yanawa. File name ekath date range eka ekka enawa (transport-bills_2026-09-01_to_2026-09-22-....xlsx).
+Dashboard saha Profile ekatath transport bill stats ekathu karala thiyenawa.
+Kohomada image eka store wenne
+
+Oyage Firebase project eke thiyena Storage (office-leave-system-67784.firebasestorage.app) ekatai slip photo eka upload wenne — transport-slips/{uid}/... kiyana path ekata. Firestore document eke thiyenne image eke URL eka witharai (Firestore ekata loku file danna baha).
+
+Wadagath — dෙන්න one deka
+
+Firestore Rules update karanna one (firestore.rules file eka dala thiyenawa) — projects saha transportBills collections dekakata rules ekathu karala thiyenawa. Console → Firestore Database → Rules → paste → Publish.
+Storage Rules aluthen dana one (storage.rules file eka) — nathinam slip upload eka "Permission denied" enawa. Console → Storage → Rules tab → paste → Publish. (Storage ekath enable karala thiyenna one — nathinam Console eken "Get Started" karanna kියලා ahanawa.)
+Meka dekama publish karala, aye page eka refresh karala "New transport bill" try karanna.
+
+
+Main
+JS 
+
+Firestore
+RULES 
+
+Storage
+RULES 
+Firestore and storage ekecode venama denna copy krgnnpuluvn vidiyta
+
+Firestore Rules —
+
+
+
+
+Claude is AI and can make mistakes.
+Main · JS
 import firebase from "firebase/compat/app";
 import "firebase/compat/auth";
 import "firebase/compat/firestore";
+import "firebase/compat/storage";
 import * as XLSX from "xlsx";
 import "./style.css";
-
+ 
 /* ============================= CONFIG ============================= */
 // Firebase Console → Project settings → General → Your apps → SDK setup and configuration.
 const firebaseConfig = {
@@ -16,11 +129,13 @@ const firebaseConfig = {
 };
 const APP_NAME = "LeaveDesk";
 const LEAVE_TYPES = ["Annual Leave", "Casual Leave", "Sick Leave", "Half Day", "No Pay Leave"];
-
+ 
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
-
+const storage = firebase.storage();
+const MAX_SLIP_MB = 5;
+ 
 /* ============================= EXTRA STYLES =============================
    Injected after style.css so the look is refined without touching style.css.
    Colours reuse the existing CSS variables. */
@@ -35,9 +150,9 @@ const EXTRA_CSS = `
 }
 * { -webkit-tap-highlight-color: transparent; }
 body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; overflow-x: hidden; }
-
+ 
 .surface { border-radius: var(--ld-radius); box-shadow: var(--ld-shadow); }
-
+ 
 /* buttons + inputs */
 .btn { transition: background-color .15s, border-color .15s, box-shadow .15s, opacity .15s; }
 .btn:active:not(:disabled) { transform: translateY(1px); }
@@ -45,7 +160,7 @@ body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; 
 .btn:focus-visible { outline: none; box-shadow: var(--ld-ring); }
 .input:focus { outline: none; border-color: var(--navy); box-shadow: var(--ld-ring); }
 textarea.input { resize: vertical; min-height: 64px; }
-
+ 
 /* tables */
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .table-wrap table { width: 100%; border-collapse: collapse; }
@@ -57,7 +172,7 @@ textarea.input { resize: vertical; min-height: 64px; }
 .table-wrap tbody td { padding: 14px 18px; font-size: 14px; vertical-align: middle; border-bottom: 1px solid var(--border); }
 .table-wrap tbody tr:last-child td { border-bottom: 0; }
 .table-wrap tbody tr:hover td { background: rgba(15,23,42,.02); }
-
+ 
 /* status badges */
 .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 1.5; }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -68,7 +183,7 @@ textarea.input { resize: vertical; min-height: 64px; }
 .badge-closed   { background: #E2E8F0; color: #334155; }
 .badge-role { background: #EEF2FF; color: #3730A3; }
 .badge-role::before { display: none; }
-
+ 
 /* modal */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
@@ -81,7 +196,7 @@ textarea.input { resize: vertical; min-height: 64px; }
 }
 @keyframes ld-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ld-pop  { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
-
+ 
 /* toasts — always above the modal */
 #toast-root {
   position: fixed; right: 12px; left: 12px; bottom: calc(12px + var(--ld-safe-b)); top: auto; z-index: 9999;
@@ -94,7 +209,7 @@ textarea.input { resize: vertical; min-height: 64px; }
 }
 .toast.ok  { border-left-color: #22C55E; }
 .toast.err { border-left-color: #EF4444; }
-
+ 
 /* sidebar */
 .app-sidebar { transition: transform .22s ease; }
 .sidebar-link {
@@ -109,7 +224,7 @@ textarea.input { resize: vertical; min-height: 64px; }
   display: inline-flex; align-items: center; justify-content: center;
 }
 .sidebar-scrim { position: fixed; inset: 0; z-index: 40; background: rgba(15,23,42,.5); }
-
+ 
 /* dashboard + blocks */
 .stat { position: relative; overflow: hidden; padding: 18px 20px 18px 24px; }
 .stat::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--stat, #94A3B8); }
@@ -131,7 +246,7 @@ textarea.input { resize: vertical; min-height: 64px; }
 .kv-row + .kv-row { border-top: 1px solid var(--border); }
 .kv-row .kv-k { color: var(--text-muted); }
 .kv-row .kv-v { font-weight: 500; text-align: right; word-break: break-word; }
-
+ 
 /* field check-in panel */
 .punch-card { padding: 22px 20px; text-align: center; }
 .punch-clock { font-size: 40px; font-weight: 700; letter-spacing: -.02em; color: var(--navy); line-height: 1.1; }
@@ -140,7 +255,30 @@ textarea.input { resize: vertical; min-height: 64px; }
 .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22C55E; margin-right: 7px; animation: ld-pulse 1.8s infinite; }
 @keyframes ld-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 .map-link { color: var(--navy); text-decoration: underline; font-size: 13px; }
-
+ 
+/* transport bills */
+.upload-box {
+  border: 1.5px dashed var(--border); border-radius: 12px; padding: 18px; text-align: center;
+  cursor: pointer; transition: border-color .15s, background .15s;
+}
+.upload-box:hover { border-color: var(--navy); background: rgba(15,23,42,.02); }
+.upload-box input[type="file"] { display: none; }
+.upload-box .icn { color: var(--text-muted); margin-bottom: 6px; }
+.slip-thumb {
+  width: 44px; height: 44px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border);
+  cursor: pointer; display: block;
+}
+.slip-preview { max-width: 100%; max-height: 220px; border-radius: 10px; border: 1px solid var(--border); display: block; margin: 0 auto; }
+.amount { font-variant-numeric: tabular-nums; font-weight: 600; }
+.route-arrow { color: var(--text-muted); margin: 0 4px; }
+.lightbox {
+  position: fixed; inset: 0; z-index: 1200; background: rgba(15,23,42,.85);
+  display: flex; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out;
+}
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: var(--ld-shadow-lg); }
+.progress-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 10px; }
+.progress-bar > div { height: 100%; background: var(--navy); transition: width .2s; }
+ 
 /* ---------- responsive ---------- */
 @media (max-width: 767px) {
   .app-sidebar {
@@ -159,7 +297,7 @@ textarea.input { resize: vertical; min-height: 64px; }
   .modal-panel { max-width: 100%; }
   .filter-row { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
   .filter-row .btn, .filter-row select, .filter-row > div { flex: 0 0 auto; }
-
+ 
   /* tables become stacked cards */
   .rtable thead { display: none; }
   .rtable, .rtable tbody, .rtable tr, .rtable td { display: block; width: 100%; }
@@ -176,7 +314,7 @@ textarea.input { resize: vertical; min-height: 64px; }
   .rtable tbody td.td-action { justify-content: flex-end; padding-top: 4px; padding-bottom: 12px; }
   .rtable tbody td.td-action::before { content: ""; }
 }
-
+ 
 @media (prefers-reduced-motion: reduce) {
   .modal-backdrop, .modal-panel, .app-sidebar, .live-dot { animation: none; transition: none; }
   .btn, .sidebar-link { transition: none; }
@@ -193,7 +331,7 @@ function injectExtraCSS() {
   if (!vp) { vp = document.createElement("meta"); vp.name = "viewport"; document.head.appendChild(vp); }
   vp.setAttribute("content", "width=device-width, initial-scale=1, viewport-fit=cover");
 }
-
+ 
 /* ============================= STATE ============================= */
 const state = {
   booting: true,
@@ -204,17 +342,23 @@ const state = {
   tab: "dashboard",
   sidebarOpen: false,
   departments: [],
+  projects: [],
   employees: [],
   leaves: [],
   attendance: [],
+  bills: [],
   leaveFilter: { status: "all", dept: "all" },
   attFilter: { dept: "all", from: "", to: "" },
+  billFilter: { status: "all", dept: "all", project: "all", from: "", to: "" },
   unsubs: [],
 };
 let reviewBusy = false;
 let punchBusy = false;
+let billReviewBusy = false;
+let billSubmitBusy = false;
 let clockTimer = null;
-
+let pendingSlipFile = null; // File object selected in the "new bill" modal, before upload
+ 
 /* ============================= HELPERS ============================= */
 function $(id) { return document.getElementById(id); }
 function esc(s) {
@@ -263,6 +407,14 @@ function deptName(id) {
   const d = state.departments.find(x => x.id === id);
   return d ? d.name : (id ? "—" : "All departments");
 }
+function projectName(id) {
+  const p = state.projects.find(x => x.id === id);
+  return p ? p.name : (id ? "—" : "No project");
+}
+function fmtMoney(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 function empByUid(uid) { return state.employees.find(e => e.id === uid); }
 function initials(name) {
   const parts = String(name || "?").trim().split(/\s+/).filter(Boolean);
@@ -280,7 +432,7 @@ function isSuperAdmin() { return state.user && state.user.role === "superadmin";
 function isDeptAdmin() { return state.user && state.user.role === "deptadmin"; }
 function isAdmin() { return isSuperAdmin() || isDeptAdmin(); }
 function roleLabel(r) { return r === "superadmin" ? "Super Admin" : r === "deptadmin" ? "Department Admin" : "Employee"; }
-
+ 
 /* Leaves an admin may see (Super Admin: all, Dept Admin: own department) */
 function adminScopeLeaves() {
   return isSuperAdmin() ? state.leaves : state.leaves.filter(l => l.department === state.user.department);
@@ -295,7 +447,21 @@ function adminFilteredList() {
   if (state.leaveFilter.status !== "all") list = list.filter(l => l.status === state.leaveFilter.status);
   return list;
 }
-
+ 
+/* Transport bills an admin may see (Super Admin: all, Dept Admin: own department) */
+function adminScopeBills() {
+  return isSuperAdmin() ? state.bills : state.bills.filter(b => b.department === state.user.department);
+}
+function billFilteredList() {
+  let list = adminScopeBills();
+  if (isSuperAdmin() && state.billFilter.dept !== "all") list = list.filter(b => b.department === state.billFilter.dept);
+  if (state.billFilter.project !== "all") list = list.filter(b => b.project === state.billFilter.project);
+  if (state.billFilter.status !== "all") list = list.filter(b => b.status === state.billFilter.status);
+  if (state.billFilter.from) list = list.filter(b => String(b.date || "") >= state.billFilter.from);
+  if (state.billFilter.to) list = list.filter(b => String(b.date || "") <= state.billFilter.to);
+  return list;
+}
+ 
 /* ============================= MODAL ============================= */
 function openModal(html) {
   $("modal-root").innerHTML = `
@@ -304,7 +470,16 @@ function openModal(html) {
     </div>`;
 }
 function closeModal() { $("modal-root").innerHTML = ""; }
-
+ 
+function viewSlip(url) {
+  if (!url) return;
+  const el = document.createElement("div");
+  el.className = "lightbox";
+  el.onclick = () => el.remove();
+  el.innerHTML = `<img src="${esc(url)}" alt="Transport bill slip">`;
+  document.body.appendChild(el);
+}
+ 
 /* ============================= RENDER DISPATCH ============================= */
 function render() {
   if (state.booting) return renderShellless(`
@@ -314,13 +489,13 @@ function render() {
         <div style="color:var(--text-muted)" class="text-sm">Loading…</div>
       </div>
     </div>`);
-
+ 
   if (state.view === "setup") return renderSetup();
   if (state.view === "login") return renderLogin();
   return renderApp();
 }
 function renderShellless(html) { $("main-root").innerHTML = html; }
-
+ 
 /* ============================= SETUP SCREEN ============================= */
 function renderSetup() {
   renderShellless(`
@@ -338,34 +513,34 @@ function renderSetup() {
         <div class="brand text-2xl mb-1 md:hidden" style="color:var(--navy)">${APP_NAME}</div>
         <h1 class="text-xl font-semibold mb-1">Create your Super Admin</h1>
         <p class="text-sm mb-6" style="color:var(--text-muted)">You'll use this account to manage the whole system.</p>
-
+ 
         <label class="label">Organization name</label>
         <input class="input mb-4" name="org" placeholder="e.g. Batapola Traders (Pvt) Ltd" required>
-
+ 
         <label class="label">Your full name</label>
         <input class="input mb-4" name="name" placeholder="e.g. Gimshan Perera" required>
-
+ 
         <label class="label">Work email</label>
         <input class="input mb-4" name="email" type="email" placeholder="admin@company.com" required>
-
+ 
         <label class="label">Password</label>
         <input class="input mb-1" name="password" type="password" placeholder="At least 6 characters" minlength="6" required>
         <p class="text-xs mb-5" style="color:var(--text-muted)">Minimum 6 characters.</p>
-
+ 
         <button class="btn btn-dark w-full" type="submit" id="setup-btn">Create Super Admin & continue</button>
         <p id="setup-err" class="text-sm mt-3" style="color:var(--danger)"></p>
       </form>
     </div>
   </div>`);
 }
-
+ 
 async function handleSetupSubmit(e) {
   e.preventDefault();
   const f = e.target, btn = $("setup-btn"), err = $("setup-err");
   err.textContent = "";
   const org = f.org.value.trim(), name = f.name.value.trim(), email = f.email.value.trim(), password = f.password.value;
   btn.disabled = true; btn.textContent = "Creating…";
-
+ 
   // Pause the auth listener: it would otherwise fire as soon as the account is created,
   // before the employee profile below is written, and wrongly sign the new admin out.
   state.creatingAdmin = true;
@@ -396,7 +571,7 @@ async function handleSetupSubmit(e) {
     const e2 = $("setup-err"); if (e2) e2.textContent = msg;
   }
 }
-
+ 
 /* ============================= LOGIN SCREEN ============================= */
 function renderLogin() {
   renderShellless(`
@@ -414,20 +589,20 @@ function renderLogin() {
         <div class="brand text-2xl mb-6 md:hidden" style="color:var(--navy)">${APP_NAME}</div>
         <h1 class="text-xl font-semibold mb-1">Sign in</h1>
         <p class="text-sm mb-6" style="color:var(--text-muted)">Enter your work email and password.</p>
-
+ 
         <label class="label">Email</label>
         <input class="input mb-4" name="email" type="email" placeholder="you@company.com" required autofocus>
-
+ 
         <label class="label">Password</label>
         <input class="input mb-5" name="password" type="password" placeholder="••••••••" required>
-
+ 
         <button class="btn btn-dark w-full" type="submit" id="login-btn">Sign in</button>
         <p id="login-err" class="text-sm mt-3" style="color:var(--danger)"></p>
       </form>
     </div>
   </div>`);
 }
-
+ 
 async function handleLogin(e) {
   e.preventDefault();
   const f = e.target, btn = $("login-btn"), err = $("login-err");
@@ -441,7 +616,7 @@ async function handleLogin(e) {
     btn.disabled = false; btn.textContent = "Sign in";
   }
 }
-
+ 
 function friendlyAuthError(ex) {
   const code = ex && ex.code || "";
   if (code.includes("email-already-in-use")) return "That email is already registered.";
@@ -453,23 +628,26 @@ function friendlyAuthError(ex) {
   if (code.includes("requires-recent-login")) return "Please sign out and sign in again, then retry.";
   return (ex && ex.message) || "Something went wrong. Please try again.";
 }
-
+ 
 async function handleLogout() {
   detachListeners();
   await auth.signOut();
   state.tab = "dashboard";
   state.sidebarOpen = false;
 }
-
+ 
 /* ============================= APP SHELL ============================= */
 const NAV = [
   { id: "dashboard", label: "Dashboard", roles: ["superadmin", "deptadmin", "employee"], icon: "grid" },
   { id: "field", label: "Field Check-in", roles: ["superadmin", "deptadmin", "employee"], icon: "pin" },
   { id: "myleave", label: "My Leave", roles: ["superadmin", "deptadmin", "employee"], icon: "calendar" },
   { id: "leaves", label: "Leave Requests", roles: ["superadmin", "deptadmin"], icon: "inbox" },
+  { id: "mybills", label: "Transport Bills", roles: ["superadmin", "deptadmin", "employee"], icon: "car" },
   { id: "attendance", label: "Attendance", roles: ["superadmin", "deptadmin"], icon: "clock" },
+  { id: "billsadmin", label: "Transport Claims", roles: ["superadmin", "deptadmin"], icon: "receipt" },
   { id: "employees", label: "Employees", roles: ["superadmin", "deptadmin"], icon: "users" },
   { id: "departments", label: "Departments", roles: ["superadmin"], icon: "building" },
+  { id: "projects", label: "Projects", roles: ["superadmin"], icon: "folder" },
   { id: "profile", label: "My Profile", roles: ["superadmin", "deptadmin", "employee"], icon: "user" },
 ];
 const ICONS = {
@@ -481,13 +659,17 @@ const ICONS = {
   pin: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-5.3 7-11a7 7 0 10-14 0c0 5.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg>',
   clock: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>',
   user: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-4 3.4-6.8 7.5-6.8s7.5 2.8 7.5 6.8"/></svg>',
+  car: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16V11l1.8-4.5A2 2 0 017.7 5h8.6a2 2 0 011.9 1.5L20 11v5"/><path d="M4 16h16v2.5a1 1 0 01-1 1h-1.5a1 1 0 01-1-1V17h-9v1.5a1 1 0 01-1 1H5a1 1 0 01-1-1V16z"/><circle cx="7.5" cy="16" r="1.4"/><circle cx="16.5" cy="16" r="1.4"/></svg>',
+  receipt: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-2.5-1.6L13 21l-2.5-1.6L8 21l-2-1.6z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>',
+  folder: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6.5a1.5 1.5 0 011.5-1.5H9l2 2.2h8a1.5 1.5 0 011.5 1.5v9.3A1.5 1.5 0 0119 19.5H4.5A1.5 1.5 0 013 18z"/></svg>',
 };
-
+ 
 function renderApp() {
   const items = NAV.filter(n => n.roles.includes(state.user.role));
   const pendingCount = isAdmin() ? adminScopeLeaves().filter(l => l.status === "pending").length : 0;
+  const pendingBillCount = isAdmin() ? adminScopeBills().filter(b => b.status === "pending").length : 0;
   const open = openSessionFor(state.user.uid);
-
+ 
   renderShellless(`
     ${state.sidebarOpen ? `<div class="sidebar-scrim" onclick="state.sidebarOpen=false; render();"></div>` : ""}
     <div class="min-h-screen flex" style="background:var(--bg)">
@@ -502,6 +684,7 @@ function renderApp() {
               <div class="sidebar-link ${state.tab === n.id ? "active" : ""}" onclick="switchTab('${n.id}')">
                 ${ICONS[n.icon]}<span>${n.label}</span>
                 ${n.id === "leaves" && pendingCount > 0 ? `<span class="nav-count">${pendingCount}</span>` : ""}
+                ${n.id === "billsadmin" && pendingBillCount > 0 ? `<span class="nav-count">${pendingBillCount}</span>` : ""}
                 ${n.id === "field" && open ? `<span class="nav-count" style="background:#22C55E;color:#062E14">●</span>` : ""}
               </div>`).join("")}
           </nav>
@@ -518,7 +701,7 @@ function renderApp() {
           <button class="btn btn-sm btn-ghost w-full mt-1.5" style="color:#9AA5BC" onclick="handleLogout()">Sign out</button>
         </div>
       </aside>
-
+ 
       <div class="flex-1 min-w-0">
         <div class="topbar md:hidden flex items-center gap-3 p-3" style="border-bottom:1px solid var(--border); background:var(--surface);">
           <button class="btn btn-secondary btn-sm" onclick="state.sidebarOpen=true; render();" aria-label="Open menu">☰</button>
@@ -533,22 +716,25 @@ function renderApp() {
   `);
   startClock();
 }
-
+ 
 function switchTab(id) { state.tab = id; state.sidebarOpen = false; render(); }
-
+ 
 function renderTabContent() {
   if (state.tab === "dashboard") return tplDashboard();
   if (state.tab === "field") return tplField();
   if (state.tab === "myleave") return tplMyLeave();
   if (state.tab === "leaves") return isAdmin() ? tplLeaves() : tplNoAccess();
+  if (state.tab === "mybills") return tplMyBills();
+  if (state.tab === "billsadmin") return isAdmin() ? tplBillsAdmin() : tplNoAccess();
   if (state.tab === "attendance") return isAdmin() ? tplAttendance() : tplNoAccess();
   if (state.tab === "employees") return isAdmin() ? tplEmployees() : tplNoAccess();
   if (state.tab === "departments") return isSuperAdmin() ? tplDepartments() : tplNoAccess();
+  if (state.tab === "projects") return isSuperAdmin() ? tplProjects() : tplNoAccess();
   if (state.tab === "profile") return tplProfile();
   return "";
 }
 function tplNoAccess() { return `<div class="surface p-8 text-center" style="color:var(--text-muted)">You don't have access to this section.</div>`; }
-
+ 
 function pageHeader(title, sub, action) {
   return `<div class="page-head flex items-start justify-between gap-4 mb-6 flex-wrap">
     <div>
@@ -558,7 +744,7 @@ function pageHeader(title, sub, action) {
     ${action ? `<div class="head-actions">${action}</div>` : ""}
   </div>`;
 }
-
+ 
 /* ============================= DASHBOARD ============================= */
 function tplDashboard() {
   const myLeaves = state.leaves.filter(l => l.employeeId === state.user.uid);
@@ -569,10 +755,14 @@ function tplDashboard() {
   const myPending = myLeaves.filter(l => l.status === "pending").length;
   const myApprovedDays = myLeaves.filter(l => l.status === "approved").reduce((s, l) => s + (l.totalDays || 0), 0);
   const outNow = isAdmin() ? attendanceScope().filter(a => a.open).length : 0;
-
+  const myBills = myBillsScope();
+  const pendingBills = isAdmin() ? adminScopeBills().filter(b => b.status === "pending").length : 0;
+  const myPendingBillAmt = myBills.filter(b => b.status === "pending").reduce((s, b) => s + (Number(b.amount) || 0), 0);
+ 
   const cards = isAdmin()
     ? [
-        ["Pending review", pending, "warn"],
+        ["Pending leave review", pending, "warn"],
+        ["Pending transport claims", pendingBills, "warn"],
         ["In the field now", outNow, "success"],
         ["Approved leave", approved, "muted"],
         ["Rejected leave", rejected, "danger"],
@@ -580,20 +770,21 @@ function tplDashboard() {
     : [
         ["My pending requests", myPending, "warn"],
         ["Approved days taken", myApprovedDays, "success"],
+        ["Transport claims pending", fmtMoney(myPendingBillAmt), "muted"],
         ["Field time this month", fmtDuration(myMonthMinutes()), "muted"],
       ];
   const toneColor = t => t === "warn" ? "var(--warn)" : t === "success" ? "var(--success)" : t === "danger" ? "var(--danger)" : "var(--navy)";
-
+ 
   const recent = [...(isAdmin() ? visibleLeaves : myLeaves)]
     .sort((a, b) => (b.appliedAt || "").localeCompare(a.appliedAt || "")).slice(0, 6);
   const attention = isAdmin()
     ? visibleLeaves.filter(l => l.status === "pending").sort((a, b) => (a.appliedAt || "").localeCompare(b.appliedAt || "")).slice(0, 5)
     : [];
   const open = openSessionFor(state.user.uid);
-
+ 
   return `
     ${pageHeader("Dashboard", `Welcome back, ${esc(String(state.user.name).split(" ")[0])}.`)}
-
+ 
     <div class="grid gap-4 mb-6" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
       ${cards.map(([label, val, tone]) => `
         <div class="surface stat" style="--stat:${toneColor(tone)}">
@@ -601,7 +792,7 @@ function tplDashboard() {
           <div class="text-3xl font-semibold" style="color:${toneColor(tone)}">${val}</div>
         </div>`).join("")}
     </div>
-
+ 
     <div class="surface p-5 mb-6 flex items-center justify-between gap-4 flex-wrap">
       <div>
         <div class="font-semibold text-sm mb-1">${open ? "You're checked in" : "Field check-in"}</div>
@@ -611,7 +802,7 @@ function tplDashboard() {
       </div>
       <button class="btn ${open ? "btn-danger" : "btn-primary"}" onclick="switchTab('field')">${open ? "Check out" : "Check in"}</button>
     </div>
-
+ 
     ${attention.length ? `
     <div class="surface overflow-hidden mb-6">
       <div class="px-5 py-4 flex items-center justify-between gap-3" style="border-bottom:1px solid var(--border)">
@@ -630,7 +821,7 @@ function tplDashboard() {
           <button class="btn btn-sm btn-primary shrink-0" onclick="modalReview('${l.id}')">Review</button>
         </div>`).join("")}
     </div>` : ""}
-
+ 
     <div class="surface overflow-hidden">
       <div class="px-5 py-4" style="border-bottom:1px solid var(--border)">
         <div class="font-semibold text-sm">${isAdmin() ? "Recent leave requests" : "My recent requests"}</div>
@@ -658,7 +849,7 @@ function statusBadge(s) {
   return `<span class="badge badge-${st}">${label}</span>`;
 }
 function openBadge() { return `<span class="badge badge-open">Open</span>`; }
-
+ 
 /* ============================= FIELD CHECK-IN / OUT ============================= */
 function openSessionFor(uid) {
   return state.attendance.find(a => a.employeeId === uid && a.open === true) || null;
@@ -700,7 +891,7 @@ function startClock() {
     el.textContent = fmtDuration((Date.now() - new Date(open.checkInAt).getTime()) / 60000);
   }, 20000);
 }
-
+ 
 function tplField() {
   const open = openSessionFor(state.user.uid);
   const mine = state.attendance
@@ -709,10 +900,10 @@ function tplField() {
     .slice(0, 25);
   const elapsed = open ? fmtDuration((Date.now() - new Date(open.checkInAt).getTime()) / 60000) : "";
   const deptOk = isSuperAdmin() || !!state.user.department;
-
+ 
   return `
     ${pageHeader("Field Check-in", "Record when you start and finish work outside the office.")}
-
+ 
     <div class="surface punch-card mb-6">
       ${open ? `
         <div class="text-sm mb-2" style="color:var(--success)"><span class="live-dot"></span>Checked in at ${fmtTime(open.checkInAt)}</div>
@@ -726,7 +917,7 @@ function tplField() {
         ${deptOk ? "" : `<p class="text-sm mt-3" style="color:var(--danger)">You're not assigned to a department yet — ask your admin to fix this first.</p>`}
       `}
     </div>
-
+ 
     <div class="surface overflow-hidden">
       <div class="px-5 py-4" style="border-bottom:1px solid var(--border)">
         <div class="font-semibold text-sm">My recent field sessions</div>
@@ -748,29 +939,29 @@ function tplField() {
     </div>
   `;
 }
-
+ 
 function modalPunch(dir) {
   const inMode = dir === "in";
   const open = openSessionFor(state.user.uid);
   if (inMode && open) { toast("You're already checked in.", "err"); return; }
   if (!inMode && !open) { toast("You're not checked in right now.", "err"); return; }
-
+ 
   openModal(`
     <div class="p-6">
       <h2 class="text-lg font-semibold mb-1">${inMode ? "Check in" : "Check out"}</h2>
       <p class="text-sm mb-5" style="color:var(--text-muted)">
         ${inMode ? "Add where you're going or what you're doing. Your location is attached if you allow it." : `You checked in at ${fmtTime(open.checkInAt)}.`}
       </p>
-
+ 
       <label class="label">${inMode ? "Where / what (optional)" : "What you did (optional)"}</label>
       <input class="input mb-4" id="punch-note" placeholder="${inMode ? "e.g. Customer visit, Galle" : "e.g. Delivered samples, 3 stops"}" autofocus>
-
+ 
       <label class="flex items-center gap-2 mb-4 text-sm" style="color:var(--text-muted)">
         <input type="checkbox" id="punch-geo" checked> Attach my location
       </label>
-
+ 
       <p id="punch-err" class="form-err"></p>
-
+ 
       <div class="flex gap-2 justify-end">
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
         <button type="button" id="punch-go" class="btn ${inMode ? "btn-primary" : "btn-danger"}" onclick="handlePunch('${dir}')">${inMode ? "Check in" : "Check out"}</button>
@@ -778,7 +969,7 @@ function modalPunch(dir) {
     </div>
   `);
 }
-
+ 
 async function handlePunch(dir) {
   if (punchBusy) return;
   const inMode = dir === "in";
@@ -786,14 +977,14 @@ async function handlePunch(dir) {
   const note = ($("punch-note") && $("punch-note").value.trim()) || null;
   const wantGeo = $("punch-geo") ? $("punch-geo").checked : false;
   if (errEl) errEl.textContent = "";
-
+ 
   punchBusy = true;
   if (btn) { btn.disabled = true; btn.textContent = wantGeo ? "Getting location…" : (inMode ? "Checking in…" : "Checking out…"); }
-
+ 
   try {
     const pos = wantGeo ? await getPosition() : null;
     if (btn) btn.textContent = inMode ? "Checking in…" : "Checking out…";
-
+ 
     if (inMode) {
       if (openSessionFor(state.user.uid)) throw new Error("You're already checked in.");
       const now = new Date().toISOString();
@@ -839,7 +1030,7 @@ async function handlePunch(dir) {
     punchBusy = false;
   }
 }
-
+ 
 /* ============================= ATTENDANCE (ADMIN) ============================= */
 function attendanceFiltered() {
   let list = attendanceScope();
@@ -848,16 +1039,16 @@ function attendanceFiltered() {
   if (state.attFilter.to) list = list.filter(a => String(a.date || "") <= state.attFilter.to);
   return list;
 }
-
+ 
 function tplAttendance() {
   const list = [...attendanceFiltered()].sort((a, b) => String(b.checkInAt || "").localeCompare(String(a.checkInAt || "")));
   const openNow = list.filter(a => a.open);
   const totalMins = list.reduce((s, a) => s + (a.durationMins || 0), 0);
-
+ 
   return `
     ${pageHeader("Attendance", isSuperAdmin() ? "Field check-ins across all departments." : `Field check-ins in ${esc(deptName(state.user.department))}.`,
       `<button class="btn btn-secondary" onclick="exportAttendanceExcel()">Export to Excel</button>`)}
-
+ 
     <div class="grid gap-4 mb-5" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
       <div class="surface stat" style="--stat:var(--success)">
         <div class="text-sm mb-2" style="color:var(--text-muted)">In the field now</div>
@@ -872,7 +1063,7 @@ function tplAttendance() {
         <div class="text-3xl font-semibold" style="color:var(--navy)">${fmtDuration(totalMins)}</div>
       </div>
     </div>
-
+ 
     <div class="filter-row flex gap-2 mb-5 flex-wrap items-end">
       <div><label class="label">From</label><input class="input" type="date" value="${state.attFilter.from}" onchange="state.attFilter.from=this.value; render();"></div>
       <div><label class="label">To</label><input class="input" type="date" value="${state.attFilter.to}" onchange="state.attFilter.to=this.value; render();"></div>
@@ -885,7 +1076,7 @@ function tplAttendance() {
       </div>` : ""}
       <button class="btn btn-secondary" onclick="state.attFilter={dept:'all',from:'',to:''}; render();">Clear filters</button>
     </div>
-
+ 
     <div class="surface overflow-hidden">
       ${list.length === 0 ? `<div class="empty">No check-ins match these filters.</div>` : `
       <div class="table-wrap"><table class="rtable">
@@ -907,7 +1098,7 @@ function tplAttendance() {
     </div>
   `;
 }
-
+ 
 function exportAttendanceExcel() {
   const list = attendanceFiltered();
   if (list.length === 0) { toast("Nothing to export for these filters.", "err"); return; }
@@ -927,12 +1118,12 @@ function exportAttendanceExcel() {
   XLSX.utils.book_append_sheet(wb, ws, "Attendance");
   XLSX.writeFile(wb, `attendance-${todayISO()}.xlsx`);
 }
-
+ 
 /* ============================= MY LEAVE ============================= */
 function tplMyLeave() {
   const mine = state.leaves.filter(l => l.employeeId === state.user.uid)
     .sort((a, b) => String(b.appliedAt || "").localeCompare(String(a.appliedAt || "")));
-
+ 
   return `
     ${pageHeader("My Leave", "Submit a new request or track your leave history.",
       `<button class="btn btn-primary" onclick="modalSubmitLeave()">+ New leave request</button>`)}
@@ -956,19 +1147,19 @@ function tplMyLeave() {
     </div>
   `;
 }
-
+ 
 function modalSubmitLeave() {
   const deptOk = state.user.role === "superadmin" || state.user.department;
   openModal(`
     <form onsubmit="handleSubmitLeave(event)" class="p-6">
       <h2 class="text-lg font-semibold mb-1">New leave request</h2>
       <p class="text-sm mb-5" style="color:var(--text-muted)">Your admin will review and respond.</p>
-
+ 
       <label class="label">Leave type</label>
       <select class="input mb-4" name="leaveType" required>
         ${LEAVE_TYPES.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
       </select>
-
+ 
       <div class="grid grid-cols-2 gap-3 mb-1">
         <div><label class="label">From</label><input class="input" type="date" name="startDate" required value="${todayISO()}"></div>
         <div><label class="label">To</label><input class="input" type="date" name="endDate" required value="${todayISO()}"></div>
@@ -976,12 +1167,12 @@ function modalSubmitLeave() {
       <label class="flex items-center gap-2 mt-3 mb-4 text-sm" style="color:var(--text-muted)">
         <input type="checkbox" name="halfDay"> This is a half-day request
       </label>
-
+ 
       <label class="label">Reason</label>
       <textarea class="input mb-5" name="reason" rows="3" placeholder="Briefly explain the reason for leave" required></textarea>
-
+ 
       ${!deptOk ? `<p class="text-sm mb-4" style="color:var(--danger)">You're not assigned to a department yet — ask your admin to fix this before submitting.</p>` : ""}
-
+ 
       <div class="flex gap-2 justify-end">
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
         <button type="submit" class="btn btn-primary" ${!deptOk ? "disabled" : ""} id="submit-leave-btn">Submit request</button>
@@ -989,7 +1180,7 @@ function modalSubmitLeave() {
     </form>
   `);
 }
-
+ 
 async function handleSubmitLeave(e) {
   e.preventDefault();
   const f = e.target, btn = $("submit-leave-btn");
@@ -1018,7 +1209,7 @@ async function handleSubmitLeave(e) {
     btn.disabled = false; btn.textContent = "Submit request";
   }
 }
-
+ 
 async function handleCancelLeave(id) {
   if (!confirm("Cancel this leave request?")) return;
   try {
@@ -1026,7 +1217,7 @@ async function handleCancelLeave(id) {
     toast("Request cancelled.", "ok");
   } catch (ex) { console.error(ex); toast(friendlyAuthError(ex), "err"); }
 }
-
+ 
 /* ============================= LEAVE REQUESTS (ADMIN) ============================= */
 function tplLeaves() {
   const base = adminBaseList();
@@ -1037,11 +1228,11 @@ function tplLeaves() {
     approved: base.filter(l => l.status === "approved").length,
     rejected: base.filter(l => l.status === "rejected").length,
   };
-
+ 
   return `
     ${pageHeader("Leave Requests", isSuperAdmin() ? "Across all departments." : `For ${esc(deptName(state.user.department))}.`,
       `<button class="btn btn-secondary" onclick="exportLeavesExcel()">Export to Excel</button>`)}
-
+ 
     <div class="filter-row flex gap-2 mb-5 flex-wrap items-center">
       ${["all", "pending", "approved", "rejected"].map(s => `
         <button class="btn btn-sm ${state.leaveFilter.status === s ? "btn-dark" : "btn-secondary"}" onclick="state.leaveFilter.status='${s}'; render();">${s[0].toUpperCase() + s.slice(1)}<span class="chip-count">${counts[s]}</span></button>
@@ -1052,7 +1243,7 @@ function tplLeaves() {
           ${state.departments.map(d => `<option value="${d.id}" ${state.leaveFilter.dept === d.id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}
         </select>` : ""}
     </div>
-
+ 
     <div class="surface overflow-hidden">
       ${list.length === 0 ? `<div class="empty">No requests match this filter.</div>` : `
       <div class="table-wrap"><table class="rtable">
@@ -1076,7 +1267,7 @@ function tplLeaves() {
     </div>
   `;
 }
-
+ 
 /* ---- Approve / Reject ----
    The buttons call handleReview(id, decision) directly (no form submit), so the click
    always reaches Firestore, and any error is shown inside the popup instead of a toast
@@ -1086,7 +1277,7 @@ function modalReview(id) {
   if (!l) { toast("That request could not be found.", "err"); return; }
   if (!isAdmin()) { toast("Only admins can review leave requests.", "err"); return; }
   const pendingNow = l.status === "pending";
-
+ 
   openModal(`
     <div class="p-6">
       <div class="flex items-start justify-between gap-3 mb-5">
@@ -1096,24 +1287,24 @@ function modalReview(id) {
         </div>
         ${statusBadge(l.status)}
       </div>
-
+ 
       <div class="detail-grid">
         <div><div class="k">Leave type</div><div class="v">${esc(l.leaveType)}</div></div>
         <div><div class="k">Duration</div><div class="v">${l.totalDays} day${l.totalDays === 1 ? "" : "s"}</div></div>
         <div><div class="k">Dates</div><div class="v">${fmtRange(l)}</div></div>
         <div><div class="k">Applied</div><div class="v">${fmtDateTime(l.appliedAt)}</div></div>
       </div>
-
+ 
       <div class="k mb-1">Reason</div>
       <div class="surface-alt rounded-lg p-3 text-sm mb-4">${esc(l.reason) || "No reason given."}</div>
-
+ 
       ${!pendingNow ? `<p class="text-sm mb-4" style="color:var(--text-muted)">${l.status === "approved" ? "Approved" : "Rejected"} by ${esc(l.reviewedByName || "—")} on ${fmtDateTime(l.reviewedAt)}. You can still change the decision below.</p>` : ""}
-
+ 
       <label class="label">Note to employee (optional)</label>
       <textarea class="input mb-3" id="review-note" rows="2" placeholder="e.g. Approved, please hand over pending tasks.">${esc(l.adminNote || "")}</textarea>
-
+ 
       <p id="review-err" class="form-err"></p>
-
+ 
       <div class="flex gap-2 justify-end flex-wrap">
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
         ${l.status !== "rejected" ? `<button type="button" data-review-btn data-decision="rejected" class="btn btn-danger" onclick="handleReview('${id}','rejected')">Reject</button>` : ""}
@@ -1122,28 +1313,28 @@ function modalReview(id) {
     </div>
   `);
 }
-
+ 
 async function handleReview(id, decision) {
   if (reviewBusy) return;
   if (decision !== "approved" && decision !== "rejected") return;
-
+ 
   const l = state.leaves.find(x => x.id === id);
   const errEl = $("review-err"), noteEl = $("review-note");
   const btns = Array.from(document.querySelectorAll("#modal-root [data-review-btn]"));
   if (errEl) errEl.textContent = "";
-
+ 
   if (!isAdmin()) { if (errEl) errEl.textContent = "Only admins can review leave requests."; return; }
   if (l && isDeptAdmin() && l.department !== state.user.department) {
     if (errEl) errEl.textContent = "You can only review requests from your own department.";
     return;
   }
-
+ 
   reviewBusy = true;
   btns.forEach(b => { b.disabled = true; });
   const clicked = btns.find(b => b.dataset.decision === decision);
   const oldLabel = clicked ? clicked.textContent : "";
   if (clicked) clicked.textContent = decision === "approved" ? "Approving…" : "Rejecting…";
-
+ 
   try {
     await db.collection("leaveRequests").doc(id).update({
       status: decision,
@@ -1163,11 +1354,11 @@ async function handleReview(id, decision) {
     reviewBusy = false;
   }
 }
-
+ 
 function exportLeavesExcel() {
   const list = adminFilteredList();
   if (list.length === 0) { toast("Nothing to export for this filter.", "err"); return; }
-
+ 
   const rows = list.map(l => ({
     Employee: l.employeeName, Department: deptName(l.department), "Leave Type": l.leaveType,
     "Start Date": l.startDate, "End Date": l.endDate, Days: l.totalDays, Reason: l.reason || "",
@@ -1180,17 +1371,401 @@ function exportLeavesExcel() {
   XLSX.utils.book_append_sheet(wb, ws, "Leave Requests");
   XLSX.writeFile(wb, `leave-requests-${todayISO()}.xlsx`);
 }
-
+ 
+/* ============================= TRANSPORT BILLS (EMPLOYEE) ============================= */
+function myBillsScope() {
+  return state.bills.filter(b => b.employeeId === state.user.uid);
+}
+ 
+function tplMyBills() {
+  const mine = myBillsScope().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const totalClaimed = mine.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+  const totalApproved = mine.filter(b => b.status === "approved").reduce((s, b) => s + (Number(b.amount) || 0), 0);
+ 
+  return `
+    ${pageHeader("Transport Bills", "Submit a PickMe / taxi bill for reimbursement, with the slip attached.",
+      `<button class="btn btn-primary" onclick="modalSubmitBill()">+ New transport bill</button>`)}
+ 
+    <div class="grid gap-4 mb-6" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div class="surface stat" style="--stat:var(--navy)">
+        <div class="text-sm mb-2" style="color:var(--text-muted)">Bills filed</div>
+        <div class="text-3xl font-semibold" style="color:var(--navy)">${mine.length}</div>
+      </div>
+      <div class="surface stat" style="--stat:var(--warn)">
+        <div class="text-sm mb-2" style="color:var(--text-muted)">Total claimed</div>
+        <div class="text-3xl font-semibold" style="color:var(--warn)">${fmtMoney(totalClaimed)}</div>
+      </div>
+      <div class="surface stat" style="--stat:var(--success)">
+        <div class="text-sm mb-2" style="color:var(--text-muted)">Approved amount</div>
+        <div class="text-3xl font-semibold" style="color:var(--success)">${fmtMoney(totalApproved)}</div>
+      </div>
+    </div>
+ 
+    <div class="surface overflow-hidden">
+      ${mine.length === 0 ? `<div class="empty">No transport bills yet. Use "New transport bill" to submit your first one.</div>` : `
+      <div class="table-wrap"><table class="rtable">
+        <thead><tr><th>Slip</th><th>Date</th><th>Route</th><th>Km</th><th>Amount</th><th>Project</th><th>Status</th><th>Note</th><th></th></tr></thead>
+        <tbody>
+        ${mine.map(b => `
+          <tr>
+            <td data-label="Slip">${b.slipUrl ? `<img class="slip-thumb" src="${esc(b.slipUrl)}" onclick="viewSlip('${esc(b.slipUrl)}')" alt="Slip">` : "—"}</td>
+            <td data-label="Date">${fmtDate(b.date)}</td>
+            <td data-label="Route">${esc(b.fromLocation)}<span class="route-arrow">→</span>${esc(b.toLocation)}</td>
+            <td data-label="Km">${b.distanceKm ?? "—"}</td>
+            <td data-label="Amount" class="amount">${fmtMoney(b.amount)}</td>
+            <td data-label="Project">${esc(projectName(b.project))}</td>
+            <td data-label="Status">${statusBadge(b.status)}</td>
+            <td data-label="Note" style="max-width:180px; color:var(--text-muted)">${esc(b.adminNote) || "—"}</td>
+            <td class="${b.status === "pending" ? "td-action" : "td-empty"}">${b.status === "pending" ? `<button class="btn btn-sm btn-ghost" onclick="handleCancelBill('${b.id}')">Cancel</button>` : ""}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>`}
+    </div>
+  `;
+}
+ 
+function modalSubmitBill() {
+  const deptOk = isSuperAdmin() || !!state.user.department;
+  pendingSlipFile = null;
+  const projectOptions = state.projects.length
+    ? `<option value="">No specific project</option>` + state.projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")
+    : `<option value="">No projects set up yet</option>`;
+ 
+  openModal(`
+    <form onsubmit="handleSubmitBill(event)" class="p-6">
+      <h2 class="text-lg font-semibold mb-1">New transport bill</h2>
+      <p class="text-sm mb-5" style="color:var(--text-muted)">Attach the PickMe / taxi slip as a photo or screenshot.</p>
+ 
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div><label class="label">From</label><input class="input" name="fromLocation" required placeholder="e.g. Office, Colombo 03"></div>
+        <div><label class="label">To</label><input class="input" name="toLocation" required placeholder="e.g. Client site, Rajagiriya"></div>
+      </div>
+ 
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div><label class="label">Distance (km)</label><input class="input" name="distanceKm" type="number" min="0" step="0.1" placeholder="e.g. 8.4"></div>
+        <div><label class="label">Amount (Rs.)</label><input class="input" name="amount" type="number" min="0" step="0.01" required placeholder="e.g. 950.00"></div>
+      </div>
+ 
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div><label class="label">Date</label><input class="input" name="date" type="date" required value="${todayISO()}"></div>
+        <div><label class="label">Project (optional)</label><select class="input" name="project">${projectOptions}</select></div>
+      </div>
+ 
+      <label class="label">Additional details (optional)</label>
+      <textarea class="input mb-4" name="notes" rows="2" placeholder="e.g. Client meeting, round trip, urgent delivery"></textarea>
+ 
+      <label class="label">Bill / slip photo</label>
+      <div class="upload-box mb-1" id="upload-box" onclick="document.getElementById('slip-file').click()">
+        <div id="upload-box-content">
+          <div class="icn">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin:0 auto"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+          </div>
+          <div class="text-sm font-medium">Tap to choose a photo</div>
+          <div class="text-xs mt-1" style="color:var(--text-muted)">PNG or JPG, up to ${MAX_SLIP_MB}MB</div>
+        </div>
+        <input id="slip-file" type="file" accept="image/png,image/jpeg" onchange="handleSlipPick(event)">
+      </div>
+      <p class="text-xs mb-4" style="color:var(--text-muted)">The slip is optional, but helps your admin verify the claim faster.</p>
+ 
+      ${!deptOk ? `<p class="text-sm mb-4" style="color:var(--danger)">You're not assigned to a department yet — ask your admin to fix this before submitting.</p>` : ""}
+ 
+      <p id="bill-err" class="form-err"></p>
+      <div id="bill-progress"></div>
+ 
+      <div class="flex gap-2 justify-end mt-2">
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" ${!deptOk ? "disabled" : ""} id="submit-bill-btn">Submit bill</button>
+      </div>
+    </form>
+  `);
+}
+ 
+function handleSlipPick(e) {
+  const file = e.target.files && e.target.files[0];
+  const box = $("upload-box-content");
+  const errEl = $("bill-err");
+  if (errEl) errEl.textContent = "";
+  if (!file) { pendingSlipFile = null; return; }
+  if (!/^image\/(png|jpeg)$/.test(file.type)) {
+    if (errEl) errEl.textContent = "Please choose a PNG or JPG image.";
+    e.target.value = ""; pendingSlipFile = null; return;
+  }
+  if (file.size > MAX_SLIP_MB * 1024 * 1024) {
+    if (errEl) errEl.textContent = `That image is over ${MAX_SLIP_MB}MB. Please choose a smaller one.`;
+    e.target.value = ""; pendingSlipFile = null; return;
+  }
+  pendingSlipFile = file;
+  const url = URL.createObjectURL(file);
+  if (box) box.innerHTML = `<img class="slip-preview" src="${url}" alt="Selected slip"><div class="text-xs mt-2" style="color:var(--text-muted)">${esc(file.name)} · tap to change</div>`;
+}
+ 
+async function uploadSlip(uid, file, onProgress) {
+  const path = `transport-slips/${uid}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  const ref = storage.ref().child(path);
+  const task = ref.put(file, { contentType: file.type });
+  return new Promise((resolve, reject) => {
+    task.on("state_changed",
+      snap => onProgress && onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+      err => reject(err),
+      async () => { try { resolve(await task.snapshot.ref.getDownloadURL()); } catch (ex) { reject(ex); } }
+    );
+  });
+}
+ 
+async function handleSubmitBill(e) {
+  e.preventDefault();
+  const f = e.target, btn = $("submit-bill-btn"), errEl = $("bill-err"), prog = $("bill-progress");
+  if (errEl) errEl.textContent = "";
+  const amount = parseFloat(f.amount.value);
+  if (!(amount > 0)) { if (errEl) errEl.textContent = "Enter a valid amount."; return; }
+ 
+  btn.disabled = true; btn.textContent = "Submitting…";
+  try {
+    let slipUrl = null;
+    if (pendingSlipFile) {
+      btn.textContent = "Uploading slip…";
+      slipUrl = await uploadSlip(state.user.uid, pendingSlipFile, pct => {
+        if (prog) prog.innerHTML = `<div class="progress-bar"><div style="width:${pct}%"></div></div>`;
+      });
+    }
+    btn.textContent = "Saving…";
+    await db.collection("transportBills").add({
+      employeeId: state.user.uid,
+      employeeName: state.user.name,
+      department: state.user.department || null,
+      date: f.date.value,
+      fromLocation: f.fromLocation.value.trim(),
+      toLocation: f.toLocation.value.trim(),
+      distanceKm: f.distanceKm.value ? parseFloat(f.distanceKm.value) : null,
+      amount,
+      project: f.project.value || null,
+      notes: f.notes.value.trim() || null,
+      slipUrl,
+      status: "pending",
+      appliedAt: new Date().toISOString(),
+      reviewedBy: null, reviewedByName: null, reviewedAt: null, adminNote: null,
+    });
+    pendingSlipFile = null;
+    closeModal();
+    toast("Transport bill submitted.", "ok");
+  } catch (ex) {
+    console.error("bill submit failed", ex);
+    if (errEl) errEl.textContent = friendlyAuthError(ex);
+    btn.disabled = false; btn.textContent = "Submit bill";
+    if (prog) prog.innerHTML = "";
+  }
+}
+ 
+async function handleCancelBill(id) {
+  if (!confirm("Cancel this transport bill?")) return;
+  try {
+    const b = state.bills.find(x => x.id === id);
+    await db.collection("transportBills").doc(id).delete();
+    if (b && b.slipUrl) { try { await storage.refFromURL(b.slipUrl).delete(); } catch (_) {} }
+    toast("Bill cancelled.", "ok");
+  } catch (ex) { console.error(ex); toast(friendlyAuthError(ex), "err"); }
+}
+ 
+/* ============================= TRANSPORT BILLS (ADMIN) ============================= */
+function tplBillsAdmin() {
+  const base = adminScopeBills();
+  const list = [...billFilteredList()].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const counts = {
+    all: base.length,
+    pending: base.filter(b => b.status === "pending").length,
+    approved: base.filter(b => b.status === "approved").length,
+    rejected: base.filter(b => b.status === "rejected").length,
+  };
+  const totalShown = list.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+ 
+  return `
+    ${pageHeader("Transport Claims", isSuperAdmin() ? "PickMe / taxi bills across all departments." : `PickMe / taxi bills for ${esc(deptName(state.user.department))}.`,
+      `<button class="btn btn-secondary" onclick="exportBillsExcel()">Export to Excel</button>`)}
+ 
+    <div class="grid gap-4 mb-5" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div class="surface stat" style="--stat:var(--warn)">
+        <div class="text-sm mb-2" style="color:var(--text-muted)">Pending review</div>
+        <div class="text-3xl font-semibold" style="color:var(--warn)">${counts.pending}</div>
+      </div>
+      <div class="surface stat" style="--stat:var(--navy)">
+        <div class="text-sm mb-2" style="color:var(--text-muted)">Bills shown</div>
+        <div class="text-3xl font-semibold" style="color:var(--navy)">${list.length}</div>
+      </div>
+      <div class="surface stat" style="--stat:var(--navy)">
+        <div class="text-sm mb-2" style="color:var(--text-muted)">Amount shown</div>
+        <div class="text-3xl font-semibold" style="color:var(--navy)">${fmtMoney(totalShown)}</div>
+      </div>
+    </div>
+ 
+    <div class="filter-row flex gap-2 mb-3 flex-wrap items-center">
+      ${["all", "pending", "approved", "rejected"].map(s => `
+        <button class="btn btn-sm ${state.billFilter.status === s ? "btn-dark" : "btn-secondary"}" onclick="state.billFilter.status='${s}'; render();">${s[0].toUpperCase() + s.slice(1)}<span class="chip-count">${counts[s]}</span></button>
+      `).join("")}
+    </div>
+    <div class="filter-row flex gap-2 mb-5 flex-wrap items-end">
+      <div><label class="label">From</label><input class="input" type="date" value="${state.billFilter.from}" onchange="state.billFilter.from=this.value; render();"></div>
+      <div><label class="label">To</label><input class="input" type="date" value="${state.billFilter.to}" onchange="state.billFilter.to=this.value; render();"></div>
+      ${isSuperAdmin() && state.departments.length ? `
+      <div><label class="label">Department</label>
+        <select class="input" onchange="state.billFilter.dept=this.value; render();">
+          <option value="all" ${state.billFilter.dept === "all" ? "selected" : ""}>All departments</option>
+          ${state.departments.map(d => `<option value="${d.id}" ${state.billFilter.dept === d.id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}
+        </select>
+      </div>` : ""}
+      ${state.projects.length ? `
+      <div><label class="label">Project</label>
+        <select class="input" onchange="state.billFilter.project=this.value; render();">
+          <option value="all" ${state.billFilter.project === "all" ? "selected" : ""}>All projects</option>
+          ${state.projects.map(p => `<option value="${p.id}" ${state.billFilter.project === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
+        </select>
+      </div>` : ""}
+      <button class="btn btn-secondary" onclick="state.billFilter={status:'all',dept:'all',project:'all',from:'',to:''}; render();">Clear filters</button>
+    </div>
+ 
+    <div class="surface overflow-hidden">
+      ${list.length === 0 ? `<div class="empty">No transport bills match these filters.</div>` : `
+      <div class="table-wrap"><table class="rtable">
+        <thead><tr><th>Slip</th><th>Employee</th>${isSuperAdmin() ? "<th>Dept</th>" : ""}<th>Date</th><th>Route</th><th>Km</th><th>Amount</th><th>Project</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        ${list.map(b => `
+          <tr>
+            <td data-label="Slip">${b.slipUrl ? `<img class="slip-thumb" src="${esc(b.slipUrl)}" onclick="viewSlip('${esc(b.slipUrl)}')" alt="Slip">` : "—"}</td>
+            <td data-label="Employee"><div class="cell-user"><div class="avatar">${esc(initials(b.employeeName))}</div><span class="font-medium">${esc(b.employeeName)}</span></div></td>
+            ${isSuperAdmin() ? `<td data-label="Dept">${esc(deptName(b.department))}</td>` : ""}
+            <td data-label="Date">${fmtDate(b.date)}</td>
+            <td data-label="Route">${esc(b.fromLocation)}<span class="route-arrow">→</span>${esc(b.toLocation)}</td>
+            <td data-label="Km">${b.distanceKm ?? "—"}</td>
+            <td data-label="Amount" class="amount">${fmtMoney(b.amount)}</td>
+            <td data-label="Project">${esc(projectName(b.project))}</td>
+            <td data-label="Status">${statusBadge(b.status)}</td>
+            <td class="td-action" style="white-space:nowrap">${b.status === "pending"
+              ? `<button class="btn btn-sm btn-primary" onclick="modalBillReview('${b.id}')">Review</button>`
+              : `<button class="btn btn-sm btn-secondary" onclick="modalBillReview('${b.id}')">Details</button>`}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>`}
+    </div>
+  `;
+}
+ 
+function modalBillReview(id) {
+  const b = state.bills.find(x => x.id === id);
+  if (!b) { toast("That bill could not be found.", "err"); return; }
+  if (!isAdmin()) { toast("Only admins can review transport bills.", "err"); return; }
+  const pendingNow = b.status === "pending";
+ 
+  openModal(`
+    <div class="p-6">
+      <div class="flex items-start justify-between gap-3 mb-5">
+        <div>
+          <h2 class="text-lg font-semibold">${pendingNow ? "Review transport bill" : "Transport bill"}</h2>
+          <p class="text-sm mt-1" style="color:var(--text-muted)">${esc(b.employeeName)}, ${esc(deptName(b.department))}</p>
+        </div>
+        ${statusBadge(b.status)}
+      </div>
+ 
+      ${b.slipUrl ? `<img class="slip-preview mb-4" src="${esc(b.slipUrl)}" onclick="viewSlip('${esc(b.slipUrl)}')" style="cursor:zoom-in" alt="Slip">` : `<div class="empty mb-4" style="padding:20px">No slip attached.</div>`}
+ 
+      <div class="detail-grid">
+        <div><div class="k">Route</div><div class="v">${esc(b.fromLocation)} → ${esc(b.toLocation)}</div></div>
+        <div><div class="k">Amount</div><div class="v amount">Rs. ${fmtMoney(b.amount)}</div></div>
+        <div><div class="k">Distance</div><div class="v">${b.distanceKm != null ? b.distanceKm + " km" : "Not given"}</div></div>
+        <div><div class="k">Date</div><div class="v">${fmtDate(b.date)}</div></div>
+        <div><div class="k">Project</div><div class="v">${esc(projectName(b.project))}</div></div>
+        <div><div class="k">Submitted</div><div class="v">${fmtDateTime(b.appliedAt)}</div></div>
+      </div>
+ 
+      <div class="k mb-1">Additional details</div>
+      <div class="surface-alt rounded-lg p-3 text-sm mb-4">${esc(b.notes) || "No additional details given."}</div>
+ 
+      ${!pendingNow ? `<p class="text-sm mb-4" style="color:var(--text-muted)">${b.status === "approved" ? "Approved" : "Rejected"} by ${esc(b.reviewedByName || "—")} on ${fmtDateTime(b.reviewedAt)}. You can still change the decision below.</p>` : ""}
+ 
+      <label class="label">Note (optional, shown to employee)</label>
+      <textarea class="input mb-3" id="bill-review-note" rows="2" placeholder="e.g. Approved for reimbursement in this month's payroll.">${esc(b.adminNote || "")}</textarea>
+ 
+      <p id="bill-review-err" class="form-err"></p>
+ 
+      <div class="flex gap-2 justify-end flex-wrap">
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
+        ${b.status !== "rejected" ? `<button type="button" data-bill-btn data-decision="rejected" class="btn btn-danger" onclick="handleBillReview('${id}','rejected')">Reject</button>` : ""}
+        ${b.status !== "approved" ? `<button type="button" data-bill-btn data-decision="approved" class="btn btn-success" onclick="handleBillReview('${id}','approved')">Approve</button>` : ""}
+      </div>
+    </div>
+  `);
+}
+ 
+async function handleBillReview(id, decision) {
+  if (billReviewBusy) return;
+  if (decision !== "approved" && decision !== "rejected") return;
+ 
+  const b = state.bills.find(x => x.id === id);
+  const errEl = $("bill-review-err"), noteEl = $("bill-review-note");
+  const btns = Array.from(document.querySelectorAll("#modal-root [data-bill-btn]"));
+  if (errEl) errEl.textContent = "";
+ 
+  if (!isAdmin()) { if (errEl) errEl.textContent = "Only admins can review transport bills."; return; }
+  if (b && isDeptAdmin() && b.department !== state.user.department) {
+    if (errEl) errEl.textContent = "You can only review bills from your own department.";
+    return;
+  }
+ 
+  billReviewBusy = true;
+  btns.forEach(x => { x.disabled = true; });
+  const clicked = btns.find(x => x.dataset.decision === decision);
+  const oldLabel = clicked ? clicked.textContent : "";
+  if (clicked) clicked.textContent = decision === "approved" ? "Approving…" : "Rejecting…";
+ 
+  try {
+    await db.collection("transportBills").doc(id).update({
+      status: decision,
+      adminNote: (noteEl && noteEl.value.trim()) || null,
+      reviewedBy: state.user.uid,
+      reviewedByName: state.user.name,
+      reviewedAt: new Date().toISOString(),
+    });
+    closeModal();
+    toast(`Bill ${decision}.`, "ok");
+  } catch (ex) {
+    console.error("bill review failed", ex);
+    if (errEl) errEl.textContent = friendlyAuthError(ex);
+    btns.forEach(x => { x.disabled = false; });
+    if (clicked) clicked.textContent = oldLabel;
+  } finally {
+    billReviewBusy = false;
+  }
+}
+ 
+function exportBillsExcel() {
+  const list = billFilteredList();
+  if (list.length === 0) { toast("Nothing to export for these filters.", "err"); return; }
+  const rows = list.map(b => ({
+    Employee: b.employeeName, Department: deptName(b.department), Date: b.date,
+    From: b.fromLocation, To: b.toLocation, "Distance (km)": b.distanceKm ?? "",
+    "Amount (Rs.)": Number(b.amount) || 0, Project: projectName(b.project),
+    Notes: b.notes || "", Status: b.status,
+    "Reviewed By": b.reviewedByName || "", "Admin Note": b.adminNote || "",
+    "Slip URL": b.slipUrl || "", "Submitted At": b.appliedAt ? b.appliedAt.slice(0, 16).replace("T", " ") : "",
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [{wch:20},{wch:16},{wch:12},{wch:22},{wch:22},{wch:12},{wch:14},{wch:18},{wch:30},{wch:10},{wch:16},{wch:26},{wch:40},{wch:17}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Transport Bills");
+  const range = (state.billFilter.from || state.billFilter.to)
+    ? `_${state.billFilter.from || "start"}_to_${state.billFilter.to || "now"}`
+    : "";
+  XLSX.writeFile(wb, `transport-bills${range}-${todayISO()}.xlsx`);
+}
+ 
 /* ============================= EMPLOYEES ============================= */
 function tplEmployees() {
   const list = (isSuperAdmin() ? state.employees : state.employees.filter(e => e.department === state.user.department))
     .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
-
+ 
   return `
     ${pageHeader("Employees", isSuperAdmin() ? "Everyone across the organization." : `Staff in ${esc(deptName(state.user.department))}.`,
       `<button class="btn btn-secondary" onclick="exportEmployeesExcel()">Export to Excel</button>
        <button class="btn btn-primary" onclick="modalAddEmployee()">+ Add employee</button>`)}
-
+ 
     <div class="surface overflow-hidden">
       ${list.length === 0 ? `<div class="empty">No employees yet. Use "Add employee" to create the first one.</div>` : `
       <div class="table-wrap"><table class="rtable">
@@ -1214,31 +1789,31 @@ function tplEmployees() {
     </div>
   `;
 }
-
+ 
 function modalAddEmployee() {
   if (!isSuperAdmin() && !state.user.department) { toast("Your account has no department yet. Ask your Super Admin.", "err"); return; }
   if (isSuperAdmin() && state.departments.length === 0) { toast("Create a department first.", "err"); return; }
   const deptOptions = isSuperAdmin()
     ? state.departments.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join("")
     : `<option value="${state.user.department}">${esc(deptName(state.user.department))}</option>`;
-
+ 
   openModal(`
     <form onsubmit="handleAddEmployee(event)" class="p-6">
       <h2 class="text-lg font-semibold mb-1">Add employee</h2>
       <p class="text-sm mb-5" style="color:var(--text-muted)">They'll be able to sign in right away with this email & password.</p>
-
+ 
       <label class="label">Full name</label>
       <input class="input mb-4" name="name" required placeholder="e.g. Nadeesha Fernando">
-
+ 
       <label class="label">Email</label>
       <input class="input mb-4" name="email" type="email" required placeholder="name@company.com">
-
+ 
       <label class="label">Phone (optional)</label>
       <input class="input mb-4" name="phone" type="tel" placeholder="e.g. 077 123 4567">
-
+ 
       <label class="label">Temporary password</label>
       <input class="input mb-4" name="password" type="text" required minlength="6" placeholder="At least 6 characters">
-
+ 
       <div class="grid ${isSuperAdmin() ? "grid-cols-2" : "grid-cols-1"} gap-3 mb-2">
         ${isSuperAdmin() ? `<div><label class="label">Department</label><select class="input" name="department" required>${deptOptions}</select></div>` : `<input type="hidden" name="department" value="${state.user.department}">`}
         <div>
@@ -1249,7 +1824,7 @@ function modalAddEmployee() {
           </select>
         </div>
       </div>
-
+ 
       <div class="flex gap-2 justify-end mt-4">
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
         <button type="submit" class="btn btn-primary" id="add-emp-btn">Add employee</button>
@@ -1257,7 +1832,7 @@ function modalAddEmployee() {
     </form>
   `);
 }
-
+ 
 async function handleAddEmployee(e) {
   e.preventDefault();
   const f = e.target, btn = $("add-emp-btn");
@@ -1265,7 +1840,7 @@ async function handleAddEmployee(e) {
   const name = f.name.value.trim(), email = f.email.value.trim(), password = f.password.value;
   const phone = f.phone.value.trim() || null;
   const department = f.department.value, role = f.role.value;
-
+ 
   // Create the auth account on a secondary app instance so the admin's own session isn't replaced.
   const secondary = firebase.initializeApp(firebaseConfig, "Secondary-" + Date.now());
   try {
@@ -1286,7 +1861,7 @@ async function handleAddEmployee(e) {
     secondary.delete().catch(() => {});
   }
 }
-
+ 
 async function handleRemoveEmployee(uid) {
   const emp = empByUid(uid);
   const name = emp ? emp.name : "this employee";
@@ -1296,7 +1871,7 @@ async function handleRemoveEmployee(uid) {
     toast("Employee removed.", "ok");
   } catch (ex) { console.error(ex); toast(friendlyAuthError(ex), "err"); }
 }
-
+ 
 function exportEmployeesExcel() {
   const list = isSuperAdmin() ? state.employees : state.employees.filter(e => e.department === state.user.department);
   if (list.length === 0) { toast("No employees to export.", "err"); return; }
@@ -1307,7 +1882,7 @@ function exportEmployeesExcel() {
   XLSX.utils.book_append_sheet(wb, ws, "Employees");
   XLSX.writeFile(wb, `employees-${todayISO()}.xlsx`);
 }
-
+ 
 /* ============================= DEPARTMENTS ============================= */
 function tplDepartments() {
   const list = state.departments.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -1330,7 +1905,7 @@ function tplDepartments() {
     </div>
   `;
 }
-
+ 
 function modalAddDepartment() {
   openModal(`
     <form onsubmit="handleAddDepartment(event)" class="p-6">
@@ -1345,7 +1920,7 @@ function modalAddDepartment() {
     </form>
   `);
 }
-
+ 
 async function handleAddDepartment(e) {
   e.preventDefault();
   const f = e.target, btn = $("add-dept-btn");
@@ -1359,7 +1934,7 @@ async function handleAddDepartment(e) {
     btn.disabled = false; btn.textContent = "Add department";
   }
 }
-
+ 
 async function handleDeleteDepartment(id) {
   const dept = state.departments.find(d => d.id === id);
   if (!dept) return;
@@ -1371,16 +1946,81 @@ async function handleDeleteDepartment(id) {
     toast("Department removed.", "ok");
   } catch (ex) { console.error(ex); toast(friendlyAuthError(ex), "err"); }
 }
-
+ 
+/* ============================= PROJECTS ============================= */
+function tplProjects() {
+  const list = state.projects.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return `
+    ${pageHeader("Projects", "Add projects so employees can tag transport bills against them.",
+      `<button class="btn btn-primary" onclick="modalAddProject()">+ Add project</button>`)}
+    <div class="grid gap-3" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
+      ${list.length === 0 ? `<div class="surface empty" style="grid-column:1/-1">No projects yet. Use "Add project" to create one.</div>` :
+        list.map(p => {
+          const count = state.bills.filter(b => b.project === p.id).length;
+          return `
+          <div class="surface p-5">
+            <div class="flex items-start justify-between gap-2">
+              <div class="font-semibold">${esc(p.name)}</div>
+              <button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="handleDeleteProject('${p.id}')">Remove</button>
+            </div>
+            <div class="text-sm mt-1" style="color:var(--text-muted)">${count} transport bill${count === 1 ? "" : "s"}</div>
+          </div>`;
+        }).join("")}
+    </div>
+  `;
+}
+ 
+function modalAddProject() {
+  openModal(`
+    <form onsubmit="handleAddProject(event)" class="p-6">
+      <h2 class="text-lg font-semibold mb-1">Add project</h2>
+      <p class="text-sm mb-5" style="color:var(--text-muted)">e.g. Client name, internal project code.</p>
+      <label class="label">Project name</label>
+      <input class="input mb-5" name="name" required autofocus placeholder="e.g. Acme Corp Rollout">
+      <div class="flex gap-2 justify-end">
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="add-project-btn">Add project</button>
+      </div>
+    </form>
+  `);
+}
+ 
+async function handleAddProject(e) {
+  e.preventDefault();
+  const f = e.target, btn = $("add-project-btn");
+  btn.disabled = true; btn.textContent = "Adding…";
+  try {
+    await db.collection("projects").add({ name: f.name.value.trim(), createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    closeModal();
+    toast("Project added.", "ok");
+  } catch (ex) {
+    console.error(ex); toast(friendlyAuthError(ex), "err");
+    btn.disabled = false; btn.textContent = "Add project";
+  }
+}
+ 
+async function handleDeleteProject(id) {
+  const proj = state.projects.find(p => p.id === id);
+  if (!proj) return;
+  const count = state.bills.filter(b => b.project === id).length;
+  if (count > 0) { toast(`${count} transport bill(s) still use "${proj.name}". Remove or reassign them first.`, "err"); return; }
+  if (!confirm(`Remove project "${proj.name}"?`)) return;
+  try {
+    await db.collection("projects").doc(id).delete();
+    toast("Project removed.", "ok");
+  } catch (ex) { console.error(ex); toast(friendlyAuthError(ex), "err"); }
+}
+ 
 /* ============================= MY PROFILE ============================= */
 function tplProfile() {
   const u = state.user;
   const myLeaves = state.leaves.filter(l => l.employeeId === u.uid);
   const mySessions = state.attendance.filter(a => a.employeeId === u.uid);
-
+  const myBills = myBillsScope();
+ 
   return `
     ${pageHeader("My Profile", "Your details, and the settings you can change yourself.")}
-
+ 
     <div class="surface p-5 mb-6 flex items-center gap-4 flex-wrap">
       <div class="avatar avatar-lg">${esc(initials(u.name))}</div>
       <div class="min-w-0">
@@ -1393,7 +2033,7 @@ function tplProfile() {
       </div>
       <button class="btn btn-primary ml-auto" onclick="modalEditProfile()">Edit details</button>
     </div>
-
+ 
     <div class="grid gap-4 mb-6" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
       <div class="surface stat" style="--stat:var(--navy)">
         <div class="text-sm mb-2" style="color:var(--text-muted)">Leave requests filed</div>
@@ -1407,8 +2047,12 @@ function tplProfile() {
         <div class="text-sm mb-2" style="color:var(--text-muted)">Field sessions</div>
         <div class="text-3xl font-semibold" style="color:var(--navy)">${mySessions.length}</div>
       </div>
+      <div class="surface stat" style="--stat:var(--navy)">
+        <div class="text-sm mb-2" style="color:var(--text-muted)">Transport bills filed</div>
+        <div class="text-3xl font-semibold" style="color:var(--navy)">${myBills.length}</div>
+      </div>
     </div>
-
+ 
     <div class="surface overflow-hidden mb-6">
       <div class="px-5 py-4" style="border-bottom:1px solid var(--border)"><div class="font-semibold text-sm">Details</div></div>
       <div class="kv-row"><span class="kv-k">Full name</span><span class="kv-v">${esc(u.name)}</span></div>
@@ -1418,7 +2062,7 @@ function tplProfile() {
       <div class="kv-row"><span class="kv-k">Department</span><span class="kv-v">${esc(u.department ? deptName(u.department) : "Not assigned")}</span></div>
       <div class="kv-row"><span class="kv-k">Role</span><span class="kv-v">${roleLabel(u.role)}</span></div>
     </div>
-
+ 
     <div class="surface overflow-hidden">
       <div class="px-5 py-4" style="border-bottom:1px solid var(--border)"><div class="font-semibold text-sm">Account</div></div>
       <div class="kv-row">
@@ -1445,25 +2089,25 @@ function tplProfile() {
     </div>
   `;
 }
-
+ 
 function modalEditProfile() {
   const u = state.user;
   openModal(`
     <form onsubmit="handleSaveProfile(event)" class="p-6">
       <h2 class="text-lg font-semibold mb-1">Edit my details</h2>
       <p class="text-sm mb-5" style="color:var(--text-muted)">This is what your admin and colleagues see on your requests.</p>
-
+ 
       <label class="label">Full name</label>
       <input class="input mb-4" name="name" required value="${esc(u.name)}">
-
+ 
       <label class="label">Job title (optional)</label>
       <input class="input mb-4" name="designation" value="${esc(u.designation || "")}" placeholder="e.g. Sales Executive">
-
+ 
       <label class="label">Phone (optional)</label>
       <input class="input mb-4" name="phone" type="tel" value="${esc(u.phone || "")}" placeholder="e.g. 077 123 4567">
-
+ 
       <p id="profile-err" class="form-err"></p>
-
+ 
       <div class="flex gap-2 justify-end">
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
         <button type="submit" class="btn btn-primary" id="profile-btn">Save changes</button>
@@ -1471,7 +2115,7 @@ function modalEditProfile() {
     </form>
   `);
 }
-
+ 
 async function handleSaveProfile(e) {
   e.preventDefault();
   const f = e.target, btn = $("profile-btn"), errEl = $("profile-err");
@@ -1497,7 +2141,7 @@ async function handleSaveProfile(e) {
     btn.disabled = false; btn.textContent = "Save changes";
   }
 }
-
+ 
 function modalChangePassword() {
   openModal(`
     <form onsubmit="handleChangePassword(event)" class="p-6">
@@ -1516,7 +2160,7 @@ function modalChangePassword() {
     </form>
   `);
 }
-
+ 
 async function handleChangePassword(e) {
   e.preventDefault();
   const f = e.target, btn = $("pw-btn"), err = $("pw-err");
@@ -1536,16 +2180,21 @@ async function handleChangePassword(e) {
 }
 // kept so any older reference still works
 function modalProfile() { switchTab("profile"); }
-
+ 
 /* ============================= FIREBASE LISTENERS ============================= */
 function attachListeners() {
   detachListeners();
-
+ 
   state.unsubs.push(db.collection("departments").onSnapshot(snap => {
     state.departments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
   }, err => console.error("departments listener", err)));
-
+ 
+  state.unsubs.push(db.collection("projects").onSnapshot(snap => {
+    state.projects = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }, err => console.error("projects listener", err)));
+ 
   // Only admins need the staff list (regular employees never see it)
   if (isAdmin()) {
     const empQuery = isSuperAdmin() ? db.collection("employees") : db.collection("employees").where("department", "==", state.user.department);
@@ -1554,7 +2203,7 @@ function attachListeners() {
       render();
     }, err => console.error("employees listener", err)));
   }
-
+ 
   let leaveQuery;
   if (isSuperAdmin()) leaveQuery = db.collection("leaveRequests");
   else if (isDeptAdmin()) leaveQuery = db.collection("leaveRequests").where("department", "==", state.user.department);
@@ -1563,7 +2212,7 @@ function attachListeners() {
     state.leaves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
   }, err => console.error("leaves listener", err)));
-
+ 
   let attQuery;
   if (isSuperAdmin()) attQuery = db.collection("attendance");
   else if (isDeptAdmin()) attQuery = db.collection("attendance").where("department", "==", state.user.department);
@@ -1572,14 +2221,23 @@ function attachListeners() {
     state.attendance = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
   }, err => console.error("attendance listener", err)));
+ 
+  let billQuery;
+  if (isSuperAdmin()) billQuery = db.collection("transportBills");
+  else if (isDeptAdmin()) billQuery = db.collection("transportBills").where("department", "==", state.user.department);
+  else billQuery = db.collection("transportBills").where("employeeId", "==", state.user.uid);
+  state.unsubs.push(billQuery.onSnapshot(snap => {
+    state.bills = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }, err => console.error("transport bills listener", err)));
 }
 function detachListeners() {
   state.unsubs.forEach(u => { try { u(); } catch (e) {} });
   state.unsubs = [];
-  state.departments = []; state.employees = []; state.leaves = []; state.attendance = [];
+  state.departments = []; state.projects = []; state.employees = []; state.leaves = []; state.attendance = []; state.bills = [];
   if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
 }
-
+ 
 /* ============================= BOOT ============================= */
 async function loadUser(fbUser) {
   try {
@@ -1606,7 +2264,7 @@ async function loadUser(fbUser) {
     render();
   }
 }
-
+ 
 async function boot() {
   try {
     const statusDoc = await db.collection("system").doc("status").get();
@@ -1614,7 +2272,7 @@ async function boot() {
   } catch (ex) {
     console.error("status check failed", ex);
   }
-
+ 
   auth.onAuthStateChanged(async (fbUser) => {
     if (state.creatingAdmin) return; // setup flow handles its own state
     closeModal();
@@ -1628,7 +2286,7 @@ async function boot() {
     await loadUser(fbUser);
   });
 }
-
+ 
 /* Inline onclick/onsubmit handlers in the templates need these on window (ES modules are not global) */
 Object.assign(window, {
   switchTab, handleLogout, render, state, closeModal,
@@ -1638,9 +2296,13 @@ Object.assign(window, {
   modalPunch, handlePunch, exportAttendanceExcel,
   exportEmployeesExcel, modalAddEmployee, handleAddEmployee, handleRemoveEmployee,
   modalAddDepartment, handleAddDepartment, handleDeleteDepartment,
+  modalSubmitBill, handleSubmitBill, handleSlipPick, handleCancelBill, viewSlip,
+  modalBillReview, handleBillReview, exportBillsExcel,
+  modalAddProject, handleAddProject, handleDeleteProject,
   handleLogin, handleSetupSubmit,
 });
-
+ 
 injectExtraCSS();
 render();
 boot();
+ 
